@@ -19,7 +19,12 @@ get_events <- function(on_date, verbose = F) {
   
   body <- GET(NCAAMB_SCOREBOARD, query = params) %>% content()
   
-  game_tables <- body$events %>% map(.get_play_by_play_html) %>% map(.parse_pbp)
+  map_fn <- if(verbose) {
+    map_with_progress
+  } else {
+    map
+  }
+  game_tables <- body$events %>% map_fn(.get_play_by_play_html) %>% map(.parse_pbp)
   had_pbp <- game_tables %>% map_lgl(~nrow(.x) > 0)
   teams <- body$events[had_pbp] %>%
     map(~.x$competitions[[1]]$competitors %>%
