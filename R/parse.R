@@ -13,7 +13,7 @@ get_events <- function(on_date, verbose = F) {
     region = 'us',
     calendartype = 'blacklist',
     limit = 300,
-    dates = as.character(score_date, '%Y%m%d'),
+    dates = as.character(on_date, '%Y%m%d'),
     groups = 50
   )
   
