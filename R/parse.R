@@ -39,11 +39,18 @@ get_events <- function(on_date, verbose = F) {
 
 .get_play_by_play_html <- function(event) {
   is_pbp <- event$links %>% map_lgl(~(.x$rel[[1]] == 'pbp'))
+  if(!any(is_pbp)) {
+    return()
+  }
   pbp_link <- event$links[is_pbp][[1]]$href
   GET(pbp_link) %>% content()
 }
 
 .parse_pbp <- function(pbp_html) {
+  # Srry...but works
+  if(is.null(pbp_html)) {
+    return(tibble())
+  }
   period_divs <- pbp_html %>% 
     html_nodes(xpath = '//div[contains(@id, "gp-quarter-")]')
   
