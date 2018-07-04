@@ -1,4 +1,4 @@
-source('R/parse.R')
+source('R/ncaam_bb.R')
 source('R/progress.R')
 
 # First day of the 17-18 season

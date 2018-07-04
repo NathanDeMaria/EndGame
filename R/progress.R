@@ -12,11 +12,11 @@ library(purrr)
 #' @export
 #'
 #' @examples
-map_with_progress <- function(x, f) {
+map_with_progress <- function(x, f, map_fn = map) {
   pb <- progress_estimated(length(x))
   f_with_progress <- function(x) {
     pb$tick()$print()
     f(x)
   }
-  x %>% map(f_with_progress)
+  x %>% map_fn(f_with_progress)
 }
