@@ -14,7 +14,7 @@ safely_save <- function(d) {
     events <- get_events(d, verbose = T)
     saveRDS(events, sprintf('%s/%s.rds', data_dir, date_str))
   }, error = function(e) {
-    cat(e, '\n')
+    cat(e$message, '\n')
   })
 }
 
