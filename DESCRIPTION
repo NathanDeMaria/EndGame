@@ -1,0 +1,9 @@
+Package: EndGame
+Title: EndGame
+Version: 0.0.0.9000
+Authors@R: person("Nathan", "DeMaria", email = 'nathandmaria@gmail.com', role = c("aut", "cre"))
+Description: Tools for getting tidy sports datasets.
+Depends: R (>= 3.4.4)
+License: MIT
+Encoding: UTF-8
+LazyData: true
