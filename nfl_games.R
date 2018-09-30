@@ -1,7 +1,9 @@
-source('R/nfl.R')
-source('R/progress.R')
-
+# source('R/nfl.R')
+# source('R/progress.R')
 library(readr)
+library(EndGame)
+
+options(EndGame.cache_dir = './internet/')
 
 # Get game scores for all the NFL games I can get from ESPN
 all_nfl_games <- seq(2002, 2018) %>%

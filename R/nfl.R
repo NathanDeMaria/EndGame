@@ -29,7 +29,7 @@ get_nfl_season <- function(season) {
     map_df(~.get_week(season, .x, SEASON_TYPES$playoffs)) %>%
     filter(team %in% REAL_TEAMS) %>%
     mutate(week = week + 17)
-  
+
   rbind(regular, post)
 }
 
@@ -44,15 +44,14 @@ get_nfl_season <- function(season) {
     dates = season,
     week = week
   )
-  
-  GET(NFL_SCOREBOARD, query = params) %>% content() %>% 
+  get_cached(NFL_SCOREBOARD, query = params, check_cache = !.maybe_future(season)) %>%
     .[['events']] %>%
     map_df(.parse_score_row) %>%
     filter(completed) %>%
     mutate(week = week,
            season = season,
            score = as.integer(score),
-           opponent_score = as.integer(opponent_score)) %>% 
+           opponent_score = as.integer(opponent_score)) %>%
     select(-completed)
 }
 

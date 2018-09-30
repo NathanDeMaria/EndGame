@@ -14,17 +14,16 @@ SEASON_TYPES <- list(
 
 
 get_ncaa_season <- function(season, include_future = F) {
-  print(season)
   # TODO: dynamically get number of weeks
   regular <- seq_len(15) %>%
-    map_df(~.get_week(season, .x, SEASON_TYPES$regular, include_future))
-  bowls <- .get_week(season, 1, SEASON_TYPES$post, include_future) %>% 
+    map_df(~.get_ncaa_week(season, .x, SEASON_TYPES$regular, include_future))
+  bowls <- .get_ncaa_week(season, 1, SEASON_TYPES$post, include_future) %>%
     mutate(week = week + 15)
   rbind(regular, bowls)
 }
 
 
-.get_week <- function(season, week, season_type, include_future) {
+.get_ncaa_week <- function(season, week, season_type, include_future) {
   params <- list(
     lang = 'en',
     region = 'us',
@@ -35,9 +34,10 @@ get_ncaa_season <- function(season, include_future = F) {
     week = week,
     groups = 80  # this is "All FBS"
   )
-  games <- GET(NCAA_SCOREBOARD, query = params) %>% content() %>%
+
+  games <- get_cached(NCAA_SCOREBOARD, query = params, check_cache = !.maybe_future(season)) %>%
     .[['events']] %>%
-    map_df(.parse_score_row)
+    map_df(.parse_ncaa_score_row)
   if(length(games) == 0) {
     # Happens :/ Like Week 15 of 2005 NCAAF
     return(tibble())
@@ -52,7 +52,7 @@ get_ncaa_season <- function(season, include_future = F) {
 }
 
 
-.parse_score_row <- function(event) {
+.parse_ncaa_score_row <- function(event) {
   teams <- event$competitions[[1]]$competitors
   team_conf <- teams[[1]]$team$conferenceId
   if (teams[[1]]$homeAway != 'home'
@@ -74,7 +74,7 @@ get_ncaa_season <- function(season, include_future = F) {
     date = event$date,
     status = event$status$type$name,
     neutral_site = event$competitions[[1]]$neutralSite,
-    
+
     team_conf = team_conf,
     opponent_conf = opponent_conf,
     team_id = teams[[1]]$id,
