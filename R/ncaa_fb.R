@@ -7,7 +7,7 @@ library(purrr)
 # Don't worry, I'm not making money off of it
 NCAA_SCOREBOARD <- 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard'
 
-SEASON_TYPES <- list(
+NCAA_SEASON_TYPES <- list(
   regular = 2,
   post = 3
 )
@@ -16,8 +16,8 @@ SEASON_TYPES <- list(
 get_ncaa_season <- function(season, include_future = F) {
   # TODO: dynamically get number of weeks
   regular <- seq_len(15) %>%
-    map_df(~.get_ncaa_week(season, .x, SEASON_TYPES$regular, include_future))
-  bowls <- .get_ncaa_week(season, 1, SEASON_TYPES$post, include_future) %>%
+    map_df(~.get_ncaa_week(season, .x, NCAA_SEASON_TYPES$regular, include_future))
+  bowls <- .get_ncaa_week(season, 1, NCAA_SEASON_TYPES$post, include_future) %>%
     mutate(week = week + 15)
   rbind(regular, bowls)
 }
