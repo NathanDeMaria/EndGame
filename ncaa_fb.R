@@ -1,9 +1,21 @@
 library(readr)
+library(magrittr)
 library(EndGame)
+library(dplyr)
+library(purrr)
+
+fix_names <- function(x) {
+  x[x == 'Army Black Knights'] <- 'Army Knights'
+  x[x == 'Hawaii Warriors'] <- "Hawai'i Rainbow Warriors"
+  x[x == 'Connecticut Huskies'] <- 'UConn Huskies'
+  x
+}
 
 
-all_ncaaf_games <- seq(2001, 2017) %>%
+all_ncaaf_games <- seq(2001, 2018) %>%
   map_with_progress(get_ncaa_season, map_fn = map_df) %>%
+  mutate(team = fix_names(team),
+         opponent = fix_names(opponent)) %>%
   write_csv('ncaaf.csv')
 
 get_ncaa_season(2018, include_future = T) %>%
