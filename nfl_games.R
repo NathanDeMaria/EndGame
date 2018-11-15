@@ -1,6 +1,6 @@
-# source('R/nfl.R')
-# source('R/progress.R')
 library(readr)
+library(purrr)
+library(magrittr)
 library(EndGame)
 
 options(EndGame.cache_dir = './internet/')
