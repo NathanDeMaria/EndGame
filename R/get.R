@@ -1,5 +1,6 @@
 library(httr)
 library(magrittr)
+library(stringr)
 
 
 get_cached <- function(url, query, cache_dir = getOption('EndGame.cache_dir', tempdir()), check_cache = T) {
@@ -9,7 +10,13 @@ get_cached <- function(url, query, cache_dir = getOption('EndGame.cache_dir', te
   if(file.exists(saved_path) & check_cache) {
     return(readRDS(saved_path))
   }
-  contents <- GET(url, query = query) %>% content()
+  response <- GET(url, query = query)
+  if(response$status_code != 200) {
+    stop(stringr::str_glue("Error: GET returned {response$status_code}. ",
+                           "URL: {url} ",
+                           "Params: {param_string}"))
+  }
+  contents <-  response %>% content()
   saveRDS(contents, saved_path)
   contents
 }
