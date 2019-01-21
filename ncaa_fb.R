@@ -4,11 +4,15 @@ library(EndGame)
 library(dplyr)
 library(purrr)
 
+options(EndGame.cache_dir = './internet/')
+
+
 fix_names <- function(x) {
   x[x == 'Army Black Knights'] <- 'Army Knights'
   x[x == 'Hawaii Warriors'] <- "Hawai'i Rainbow Warriors"
   x[x == 'Connecticut Huskies'] <- 'UConn Huskies'
   x[x == 'Southern Methodist Mustangs'] <- 'SMU Mustangs'
+  x[x == 'Southern University Jaguars'] <- 'Southern Jaguars'
   x
 }
 
