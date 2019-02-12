@@ -6,35 +6,55 @@ library(rvest)
 # @ESPN - I'm just gonna use this until you say stop
 # Don't worry, I'm not making money off of it
 NCAAMB_SCOREBOARD <- 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard'
+NCAAMB_TOURNAMENT_GROUPS <- list(
+  ncaa=100,
+  nit=50,
+  cbi=55,
+  cit=56
+)
 
-get_events <- function(on_date, verbose = F) {
-  params <- list(
-    lang = 'en',
-    region = 'us',
-    calendartype = 'blacklist',
-    limit = 300,
-    dates = as.character(on_date, '%Y%m%d'),
-    groups = 50
-  )
-  
-  body <- GET(NCAAMB_SCOREBOARD, query = params) %>% content()
-  
+get_ncaambb_events <- function(on_date, verbose = F, group = NULL) {
+  events <- .get_raw_events(on_date, group = group)
   map_fn <- if(verbose) {
     map_with_progress
   } else {
     map
   }
-  game_tables <- body$events %>% map_fn(.get_play_by_play_html) %>% map(.parse_pbp)
+  game_tables <- events %>% map_fn(.get_play_by_play_html) %>% map(.parse_pbp)
   had_pbp <- game_tables %>% map_lgl(~nrow(.x) > 0)
   teams <- body$events[had_pbp] %>%
     map(~.x$competitions[[1]]$competitors %>%
           map_chr(~.x$team$displayName))
   game_ids <- body$events[had_pbp] %>% map(~.x$id)
-  
-  teams %>% map2(game_tables[had_pbp], ~.y %>% mutate(home = .x[1], away = .x[2])) %>% 
-    map2(game_ids, ~.x %>% mutate(game_id = .y)) %>% 
-    bind_rows() %>% 
+
+  teams %>% map2(game_tables[had_pbp], ~.y %>% mutate(home = .x[1], away = .x[2])) %>%
+    map2(game_ids, ~.x %>% mutate(game_id = .y)) %>%
+    bind_rows() %>%
     mutate(game_date = on_date)
+}
+
+get_ncaambb_scores <- function(on_date, group = NULL) {
+  raw_events <- .get_raw_events(on_date, group)
+  raw_events %>%
+    map_df(parse_score) %>%
+    filter(completed)
+}
+
+
+.get_raw_events <- function(on_date, group = NULL) {
+  params <- list(
+    lang = 'en',
+    region = 'us',
+    calendartype = 'blacklist',
+    limit = 300,
+    dates = as.character(on_date, '%Y%m%d')
+  )
+
+  if (!is.null(group)) {
+    params$groups <- group
+  }
+
+  get_cached(NCAAMB_SCOREBOARD, query = params, check_cache = on_date < Sys.Date())$events
 }
 
 .get_play_by_play_html <- function(event) {
@@ -51,14 +71,14 @@ get_events <- function(on_date, verbose = F) {
   if(is.null(pbp_html)) {
     return(tibble())
   }
-  period_divs <- pbp_html %>% 
+  period_divs <- pbp_html %>%
     html_nodes(xpath = '//div[contains(@id, "gp-quarter-")]')
-  
+
   period_numbers <- period_divs %>%
     html_attr('id') %>%
     strsplit('-') %>%
     map_int(~as.integer(.x[[3]]))
-  period_tables <- period_divs %>% 
+  period_tables <- period_divs %>%
     map(~.parse_period(.x))
   period_numbers %>%
     map2_df(period_tables, ~cbind(period_number = .x, .y)) %>%
@@ -80,9 +100,9 @@ get_events <- function(on_date, verbose = F) {
   scores <- period_plays %>%
     html_node('.combined-score') %>%
     html_text() %>%
-    .convert_str_to_score() %>% 
+    .convert_str_to_score() %>%
     do.call(rbind, .)
-  
+
   tibble(seconds_left, home_score = scores[,1], away_score = scores[,2], play_text)
 }
 
