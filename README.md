@@ -1,7 +1,9 @@
 # Tidy Sports Datasets
 
-- NCAAM Play by Play (`ncaambb_play_by_play.R`)
-- NFL Scores (`nfl_games.R`)
+- [NCAAM Play by Play](./ncaambb_play_by_play.R)
+- [NFL Scores](./nfl_games.R)
+- [NCAAFB Scores](./ncaa_fb.R)
+- [NCAAMBB Scores](./ncaambb.R)
 
 ## Options
 

@@ -10,7 +10,7 @@ get_cached <- function(url, query, cache_dir = getOption('EndGame.cache_dir', te
   if(file.exists(saved_path) & check_cache) {
     return(readRDS(saved_path))
   }
-  response <- GET(url, query = query)
+  response <- RETRY('GET', url, query = query, pause_base = 4, times = 10)
   if(response$status_code != 200) {
     stop(stringr::str_glue("Error: GET returned {response$status_code}. ",
                            "URL: {url} ",
