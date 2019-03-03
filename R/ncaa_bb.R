@@ -5,15 +5,16 @@ library(rvest)
 
 # @ESPN - I'm just gonna use this until you say stop
 # Don't worry, I'm not making money off of it
-NCAAMB_SCOREBOARD <- 'https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard'
+NCAABB_SCOREBOARD <- 'https://site.api.espn.com/apis/site/v2/sports/basketball/%s-college-basketball/scoreboard'
 NCAAMB_TOURNAMENT_GROUPS <- list(
   ncaa=100,
-  nit=50,
+  nit=98,
   cbi=55,
   cit=56
 )
+NCAABB_DIV_1 <- 50  # During the regular season, at least
 
-get_ncaambb_events <- function(on_date, verbose = F, group = NULL) {
+get_ncaambb_events <- function(on_date, verbose = F, group = NCAABB_DIV_1) {
   events <- .get_raw_events(on_date, group = group)
   map_fn <- if(verbose) {
     map_with_progress
@@ -33,15 +34,15 @@ get_ncaambb_events <- function(on_date, verbose = F, group = NULL) {
     mutate(game_date = on_date)
 }
 
-get_ncaambb_scores <- function(on_date, group = NULL) {
-  raw_events <- .get_raw_events(on_date, group)
+get_ncaabb_scores <- function(on_date, gender, group = NCAABB_DIV_1) {
+  raw_events <- .get_raw_events(on_date, gender, group)
   raw_events %>%
     map_df(parse_score) %>%
     filter(completed)
 }
 
 
-.get_raw_events <- function(on_date, group = NULL) {
+.get_raw_events <- function(on_date, gender, group = NCAABB_DIV_1) {
   params <- list(
     lang = 'en',
     region = 'us',
@@ -53,8 +54,8 @@ get_ncaambb_scores <- function(on_date, group = NULL) {
   if (!is.null(group)) {
     params$groups <- group
   }
-
-  get_cached(NCAAMB_SCOREBOARD, query = params, check_cache = on_date < Sys.Date())$events
+  base_url <- sprintf(NCAABB_SCOREBOARD, gender)
+  get_cached(base_url, query = params, check_cache = on_date < Sys.Date())$events
 }
 
 .get_play_by_play_html <- function(event) {
