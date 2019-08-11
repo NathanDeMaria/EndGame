@@ -3,9 +3,13 @@ library(magrittr)
 library(stringr)
 
 
-get_cached <- function(url, query, cache_dir = getOption('EndGame.cache_dir', tempdir()), check_cache = T, write_to_cache = T) {
+get_cached <- function(url, query = NULL, cache_dir = getOption('EndGame.cache_dir', tempdir()), check_cache = T, write_to_cache = T) {
   url_string <- .clean_for_path(url)
-  param_string <- paste0(names(query), '=', query, collapse = '&') %>% .clean_for_path()
+  param_string <- if (is.null(query)) {
+    ''
+  } else {
+    paste0(names(query), '=', query, collapse = '&') %>% .clean_for_path()
+  }
   saved_path <- file.path(cache_dir, paste0(url_string, param_string, '.rds'))
   if(file.exists(saved_path) & check_cache) {
     return(readRDS(saved_path))
@@ -24,11 +28,30 @@ get_cached <- function(url, query, cache_dir = getOption('EndGame.cache_dir', te
 }
 
 
-get_cached_html <- function(url, query, cache_dir = getOption('EndGame.cache_dir', tempdir()), check_cache = T, write_to_cache = T) {
+#' Get cached
+#'
+#' Checks a cache (just a directory) before making a GET
+#' Saves the content if there wasn't a file locally
+#'
+#' @param url
+#' @param query
+#' @param cache_dir
+#' @param check_cache
+#' @param write_to_cache
+#'
+#' @return contents from the url.
+#' @export
+#'
+#' @examples
+get_cached_html <- function(url, query = NULL, cache_dir = getOption('EndGame.cache_dir', tempdir()), check_cache = T, write_to_cache = T) {
   # Switching to saving as XML because of https://github.com/tidyverse/rvest/issues/181
   # potentially only need this when you're loading/saving lists instead of full HTML pages
   url_string <- .clean_for_path(url)
-  param_string <- paste0(names(query), '=', query, collapse = '&') %>% .clean_for_path()
+  param_string <- if (is.null(query)) {
+    ''
+  } else {
+    paste0(names(query), '=', query, collapse = '&') %>% .clean_for_path()
+  }
   saved_path <- file.path(cache_dir, paste0(url_string, param_string, '.html'))
   if(file.exists(saved_path) & check_cache) {
     return(read_html(saved_path))
