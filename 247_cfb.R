@@ -6,7 +6,8 @@ options(EndGame.cache_dir = './internet/')
 # Starts in 1999, but the numbers are garbage
 # Also, outside of top 50 didn't have ratings until 2002
 # and non-FBS didn't get them until 2012
-ratings <- map_df(seq(2000, 2019), get_247_fb_recuriting_ratings)
+ratings <- map_df(seq(2000, 2019), get_247_fb_recuriting_ratings) %>%
+  write_csv('ncaaf_recruiting.csv')
 
 # Team ratings by year
 # <50 2000-2001
@@ -42,6 +43,5 @@ ratings %>% mutate(year = as.factor(year)) %>%
   ggplot() + geom_line((aes(x = rank, y = rating, col = year))) +
   labs(x = 'Rank', y = 'Rating', title = 'Drop-off curves each year')
 
-# Yeah, I like that better. Gonna save normalized ratings
-ratings %>% group_by(year) %>% mutate(rating = normalize(rating)) %>%
-  write_csv('ncaaf_recruiting.csv')
+# Yeah, I like that better. Would recommend normalizing by year
+# but saving raw to leave that up to the application

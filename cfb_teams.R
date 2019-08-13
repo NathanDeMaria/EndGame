@@ -4,6 +4,8 @@ library(httr)
 library(EndGame)
 library(logging)
 
+options(EndGame.cache_dir = './internet/')
+
 .grep_espn_team_id <- function(link) {
   str_match(link, 'id/([0-9]+)')[,2]
 }
@@ -34,19 +36,42 @@ team_info <- team_ids %>% map_with_progress(.get_team_info, map_fn = map_df)
 SCHEDULE_FMT <- 'https://espn.com/college-football/team/schedule/_/id/{team_id}/season/{year}'
 
 get_opponent_ids <- function(team_id, year) {
+  opp_links <- tryCatch({
     SCHEDULE_FMT %>% str_glue(team_id = team_id, year = year) %>%
-      GET() %>% content() %>%
+      get_cached_html() %>%
       html_node('section.Table2__responsiveTable') %>% html_nodes('a') %>% html_attr('href') %>%
-      keep(grepl('^/college-football/team/_/id/', .)) %>% .grep_espn_team_id() %>% unique()
+      keep(grepl('^/college-football/team/_/id/', .))
+  }, error = function(e) {
+    if (!grepl('500', e$message)) {
+      stop(e)
+    }
+    logwarn("Error on the page for team %s in %s", team_id, year)
+    character()
+  })
+  if (!length(opp_links)) {
+    # In case a team played no games this year
+    return(character())
+  }
+  opp_links %>% .grep_espn_team_id() %>% unique()
 }
 
-for (team_id in team_info$espn_team_id) {
-  opp_ids <- get_opponent_ids(team_id, 2019)
-  new_teams <- opp_ids %>% discard(~. %in% team_info$espn_team_id)
-  if(length(new_teams)) {
-    more_info <- new_teams %>% map_df(.get_team_info)
-    team_info <- bind_rows(team_info, more_info)
+
+for (year in seq(2019, 2012)) {
+  mattered <- T
+  while(mattered) {
+    loginfo("Last loop added at least one team. Cycling through again for %s.", year)
+    mattered <- F
+    for (team_id in team_info$espn_team_id) {
+      opp_ids <- get_opponent_ids(team_id, year)
+      new_teams <- opp_ids %>% discard(~. %in% team_info$espn_team_id)
+      if(length(new_teams)) {
+        more_info <- new_teams %>% map_df(.get_team_info)
+        team_info <- bind_rows(team_info, more_info)
+        mattered <- T
+      }
+    }
   }
 }
+
 
 team_info %>% write_csv('ncaaf_team_info.csv')
