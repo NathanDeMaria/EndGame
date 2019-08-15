@@ -13,9 +13,19 @@ options(EndGame.cache_dir = './internet/')
 TEAM_FMT <- 'https://www.espn.com/college-football/team/_/id/{espn_team_id}'
 
 # Links, for FBS schools at least
-team_ids <- GET('https://www.espn.com/college-football/teams') %>% content() %>%
-  html_nodes('section.TeamLinks') %>% html_node('a') %>% html_attr('href') %>%
-  map_chr(.grep_espn_team_id)
+# https://www.espn.com/college-football/teams/_/group/80
+# https://www.espn.com/college-football/teams/_/group/81
+get_team_ids <- function(group_id) {
+  str_glue('https://www.espn.com/college-football/teams/_/group/{group_id}', group_id = group_id) %>%
+    GET() %>% content() %>%
+    html_nodes('section.TeamLinks') %>% html_node('a') %>% html_attr('href') %>%
+    map_chr(.grep_espn_team_id)
+}
+team_ids <- c(
+  get_team_ids(80),  # FBS
+  get_team_ids(81),  # FCS
+  get_team_ids(35)   # DII/DIII
+)
 
 
 .get_team_info <- function(espn_team_id) {
@@ -56,7 +66,7 @@ get_opponent_ids <- function(team_id, year) {
 }
 
 
-for (year in seq(2019, 2012)) {
+for (year in seq(2019, 2003)) {
   mattered <- T
   while(mattered) {
     loginfo("Last loop added at least one team. Cycling through again for %s.", year)
