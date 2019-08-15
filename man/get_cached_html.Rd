@@ -4,8 +4,9 @@
 \alias{get_cached_html}
 \title{Get cached}
 \usage{
-get_cached_html(url, query, cache_dir = getOption("EndGame.cache_dir",
-  tempdir()), check_cache = T, write_to_cache = T)
+get_cached_html(url, query = NULL,
+  cache_dir = getOption("EndGame.cache_dir", tempdir()),
+  check_cache = T, write_to_cache = T)
 }
 \arguments{
 \item{write_to_cache}{}

@@ -1,4 +1,3 @@
-library(httr)
 library(magrittr)
 library(stringr)
 
@@ -54,7 +53,7 @@ get_cached_html <- function(url, query = NULL, cache_dir = getOption('EndGame.ca
   }
   saved_path <- file.path(cache_dir, paste0(url_string, param_string, '.html'))
   if(file.exists(saved_path) & check_cache) {
-    return(read_html(saved_path))
+    return(xml2::read_html(saved_path))
   }
   response <- RETRY('GET', url, query = query, pause_base = 4, times = 10)
   if(response$status_code != 200) {
