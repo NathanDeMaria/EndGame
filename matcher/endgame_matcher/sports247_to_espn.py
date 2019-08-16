@@ -34,8 +34,10 @@ LOOKUP = {
     # Dixie State (College) has a page but nothing scheduled? https://www.espn.com/college-football/team/stats/_/id/3101/season/2019
     # Same with Western Oregon https://www.espn.com/college-football/team/stats/_/id/2848/season/2019
     # Texas A&M Commerce https://www.espn.com/college-football/team/stats/_/id/2837/texas-commerce-lions
+    # Minnesota State Moorhead https://www.espn.com/college-football/team/schedule/_/id/2817/year/2013
     'University of Charleston': 'Charleston (WV)',
     'Colorado State Pueblo': 'Colorado State-Pueblo',
+    'Minnesota State Mankato': 'Minnesota State',
 }
 
 

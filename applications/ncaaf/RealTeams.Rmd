@@ -1,0 +1,35 @@
+---
+title: "RealTeams"
+output: html_document
+---
+
+## R Markdown
+```{r load}
+library(tidyverse)
+
+games <- read_csv('ncaaf.csv')
+games <- games %>% select(player = home, week, season) %>%
+  bind_rows(games %>% select(player = away, week, season))
+```
+
+
+```{r per_season}
+season_counts <- games %>% group_by(season, player) %>% summarise(count = n())
+
+# There's a big jump at 10, so lets say anybody with 10 or more was real
+ggplot(season_counts) + geom_histogram(aes(x = count), binwidth = 1) +
+  labs(y = '# teams', title = 'Frequency of games in a season per team')
+```
+
+```{r seasons}
+n_games <- 10
+full_season_counts <- season_counts %>% 
+  filter(count >= n_games) %>%
+  group_by(player) %>%
+  summarise(full_seasons = n())
+
+ggplot(full_season_counts) + geom_histogram(aes(x = full_seasons), binwidth = 1) +
+  labs(y = sprintf("# of teams with at n seasons of at least %s games", n_games))
+
+# A bunch at 10, top "tier" at 14+, so I'll filter on teams with 14+ seasons of 10+ games
+```

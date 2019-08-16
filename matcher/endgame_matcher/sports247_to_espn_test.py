@@ -7,7 +7,7 @@ from .testing import set_mistmatch
 
 ENDGAME_ROOT_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    '..', '..',
+    '..', '..', 'applications', 'ncaaf',
 )
 SPORTS247_FILE = os.path.join(ENDGAME_ROOT_DIR, 'ncaaf_recruiting.csv')
 ESPN_TEAMS_FILE = os.path.join(ENDGAME_ROOT_DIR, 'ncaaf_team_info.csv')
