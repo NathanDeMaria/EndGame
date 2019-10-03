@@ -10,7 +10,7 @@ options(EndGame.cache_dir = './internet/')
 fix_names <- function(x) {
   # Some of these names change across seasons
   # Since I use this as their ID, that's not ok
-  x[x == 'Army Black Knights'] <- 'Army Knights'
+  x[x == 'Army Knights'] <- 'Army Black Knights'
   x[x == 'Hawaii Warriors'] <- "Hawai'i Rainbow Warriors"
   x[x == 'Connecticut Huskies'] <- 'UConn Huskies'
   x[x == 'Southern Methodist Mustangs'] <- 'SMU Mustangs'
