@@ -22,12 +22,12 @@ This is its own RStudio project, a client of the `EndGame` package in the root o
     - `completed`: TRUE if the game was completed. Should all be true for this `.csv`, but potentially false for one aimed at future games
     - `week`: the week number of this game. Post-season (bowls, playoffs) weeks start at 16
     - `season`: the year at the start of the season this game is a part of
-  - Also outputs `ncaaf_converences.csv`
+  - Also outputs `ncaaf_conferences.csv`
   - Each row is a team for a season
   - Columns:
     - `season`
-    - `home`: the ESPN team location + display name
-    - `home_conference`: the ESPN conference ID the home team was a member of during the season 
+    - `name`: the ESPN team location + display name
+    - `group`: the ESPN conference ID the home team was a member of during the season 
 - [`cfb_teams.R`](./cfb_teams.R): Loop through networks of teams to try to find everybody's name/ID according to ESPN
   - Outputs `ncaaf_team_info.csv`
   - Loop goes back to 2003 (furthest back ESPN's UI shows team schedules right now)

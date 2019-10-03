@@ -1,7 +1,3 @@
-library(magrittr)
-library(stringr)
-
-
 get_cached <- function(url, query = NULL, cache_dir = getOption('EndGame.cache_dir', tempdir()), check_cache = T, write_to_cache = T) {
   url_string <- .clean_for_path(url)
   param_string <- if (is.null(query)) {
@@ -13,13 +9,13 @@ get_cached <- function(url, query = NULL, cache_dir = getOption('EndGame.cache_d
   if(file.exists(saved_path) & check_cache) {
     return(readRDS(saved_path))
   }
-  response <- RETRY('GET', url, query = query, pause_base = 4, times = 10)
+  response <- httr::RETRY('GET', url, query = query, pause_base = 4, times = 10)
   if(response$status_code != 200) {
     stop(stringr::str_glue("Error: GET returned {response$status_code}. ",
                            "URL: {url} ",
                            "Params: {param_string}"))
   }
-  contents <-  response %>% content()
+  contents <-  response %>% httr::content()
   if (write_to_cache) {
     saveRDS(contents, saved_path)
   }
@@ -55,15 +51,15 @@ get_cached_html <- function(url, query = NULL, cache_dir = getOption('EndGame.ca
   if(file.exists(saved_path) & check_cache) {
     return(xml2::read_html(saved_path))
   }
-  response <- RETRY('GET', url, query = query, pause_base = 4, times = 10)
+  response <- httr::RETRY('GET', url, query = query, pause_base = 4, times = 10)
   if(response$status_code != 200) {
     stop(stringr::str_glue("Error: GET returned {response$status_code}. ",
                            "URL: {url} ",
                            "Params: {param_string}"))
   }
-  contents <-  response %>% content()
+  contents <-  response %>% httr::content()
   if (write_to_cache) {
-    write_html(contents, saved_path)
+    xml2::write_html(contents, saved_path)
   }
   contents
 }

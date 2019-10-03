@@ -7,7 +7,7 @@ LOOKUP = {
     'Nicholls State': 'Nicholls',
     'FIU': 'Florida International',
     'Hawaii': "Hawai'i",
-    'McNeese State': 'Mcneese',
+    'McNeese State': 'McNeese',
     'Connecticut': 'UConn',
     'Southern Miss': 'Southern Mississippi',
     'USF': 'South Florida',
