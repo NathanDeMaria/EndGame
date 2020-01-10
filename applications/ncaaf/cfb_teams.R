@@ -4,7 +4,7 @@ library(httr)
 library(EndGame)
 library(logging)
 
-options(EndGame.cache_dir = './internet/')
+options(EndGame.cache_dir = '../../internet/')
 
 .grep_espn_team_id <- function(link) {
   str_match(link, 'id/([0-9]+)')[,2]

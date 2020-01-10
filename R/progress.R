@@ -1,8 +1,5 @@
-library(dplyr)
-library(purrr)
-
 #' With Progress
-#' 
+#'
 #' Acts like %>% map(f), except with a progress bar.
 #'
 #' @param x Some listy input
@@ -13,7 +10,7 @@ library(purrr)
 #'
 #' @examples
 map_with_progress <- function(x, f, map_fn = map) {
-  pb <- progress_estimated(length(x))
+  pb <- dplyr::progress_estimated(length(x))
   f_with_progress <- function(x) {
     pb$tick()$print()
     f(x)

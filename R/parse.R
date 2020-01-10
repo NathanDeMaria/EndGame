@@ -23,7 +23,7 @@ parse_score <- function(event) {
   neutral_site <- competition$neutralSite
   completed <- event$status$type$completed
 
-  tibble(
+  tibble::tibble(
     home = teams[is_home],
     home_score = scores[is_home],
     home_conference = conferences[is_home],

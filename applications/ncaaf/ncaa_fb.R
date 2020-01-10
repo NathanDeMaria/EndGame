@@ -4,7 +4,7 @@ library(EndGame)
 library(dplyr)
 library(purrr)
 
-options(EndGame.cache_dir = './internet/')
+options(EndGame.cache_dir = '../../internet/')
 
 # https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard Params: lang=en&region=us&calendartype=blacklist&limit=300&seasontype=2&dates=2001&week=9&groups=80
 fix_names <- function(x) {
@@ -24,7 +24,6 @@ all_ncaaf_games <- seq(2001, 2018) %>%
   mutate(home = fix_names(home),
          away = fix_names(away)) %>%
   write_csv('ncaaf.csv')
-
 flipped <- all_ncaaf_games %>%
   select(home = away,
          home_conference = away_conference,
@@ -33,5 +32,6 @@ conference_lookups <- all_ncaaf_games %>%
   select(home, home_conference, season) %>%
   bind_rows(flipped) %>%
   group_by(season, home) %>%
-  summarise(home_conference = first(home_conference)) %>%
+  summarise(group = first(home_conference)) %>%
+  select(group, name = home, season) %>%
   write_csv('ncaaf_conferences.csv')

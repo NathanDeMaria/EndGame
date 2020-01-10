@@ -1,5 +1,4 @@
 library(dplyr)
-# library(tibble)
 library(httr)
 library(purrr)
 
@@ -14,27 +13,50 @@ SEASON_TYPES <- list(
 )
 
 REAL_TEAMS <- c(
-  "49ers", "Bears", "Bengals", "Bills", "Broncos", "Browns", "Buccaneers", "Cardinals",
-  "Chargers", "Chiefs", "Colts", "Cowboys", "Dolphins", "Eagles", "Falcons", "Giants",
-  "Jaguars", "Jets", "Lions", "Packers", "Panthers", "Patriots", "Raiders", "Rams",
-  "Ravens", "Redskins", "Saints", "Seahawks", "Steelers", "Texans", "Titans", "Vikings"
+  "Arizona Cardinals", "Atlanta Falcons", "Baltimore Ravens", "Buffalo Bills",
+  "Carolina Panthers", "Chicago Bears", "Cincinnati Bengals", "Cleveland Browns",
+  "Dallas Cowboys", "Denver Broncos", "Detroit Lions", "Green Bay Packers",
+  "Houston Texans", "Indianapolis Colts", "Jacksonville Jaguars", "Kansas City Chiefs",
+  "Los Angeles Chargers", "Los Angeles Rams", "Miami Dolphins", "Minnesota Vikings",
+  "New England Patriots", "New Orleans Saints", "New York Giants", "New York Jets",
+  "Oakland Raiders", "Philadelphia Eagles", "Pittsburgh Steelers", "San Francisco 49ers",
+  "Seattle Seahawks", "Tampa Bay Buccaneers", "Tennessee Titans", "Washington Redskins"
 )
 
 
+#' Get NFL Seasons
+#'
+#' Grab the scores of all games for an NFL season
+#'
+#' @param season
+#'
+#' @return tibble of games
+#' @export
+#'
+#' @examples
 get_nfl_season <- function(season) {
   regular <- seq_len(17) %>%
-    map_df(~.get_week(season, .x, SEASON_TYPES$regular))
+    map_df(~.get_nfl_week(season, .x, SEASON_TYPES$regular))
   # Was the pro-bowl always 4?
   post <- seq_len(5) %>%
-    map_df(~.get_week(season, .x, SEASON_TYPES$playoffs)) %>%
-    filter(team %in% REAL_TEAMS) %>%
-    mutate(week = week + 17)
+    map_df(~.get_nfl_week(season, .x, SEASON_TYPES$playoffs)) %>%
+    dplyr::filter(home %in% REAL_TEAMS) %>%
+    dplyr::mutate(week = week + 17)
 
-  rbind(regular, post)
+  rbind(regular, post) %>%
+   dplyr::mutate(
+      home = .replace_names(home),
+      away = .replace_names(away)
+    )
+}
+
+.replace_names <- function(names) {
+  names %>% sub(pattern = 'San Diego', replacement = 'Los Angeles') %>%
+    sub(pattern = 'St. Louis', replacement = 'Los Angeles')
 }
 
 
-.get_week <- function(season, week, season_type) {
+.get_nfl_week <- function(season, week, season_type) {
   params <- list(
     lang = 'en',
     region = 'us',
@@ -46,25 +68,11 @@ get_nfl_season <- function(season) {
   )
   get_cached(NFL_SCOREBOARD, query = params, check_cache = !.maybe_future(season)) %>%
     .[['events']] %>%
-    map_df(.parse_score_row) %>%
-    filter(completed) %>%
-    mutate(week = week,
+    map_df(parse_score) %>%
+    dplyr::filter(completed) %>%
+    dplyr::mutate(week = week,
            season = season,
-           score = as.integer(score),
-           opponent_score = as.integer(opponent_score)) %>%
-    select(-completed)
-}
-
-
-.parse_score_row <- function(event) {
-  # TODO: mark home team? mark neutral site?
-  teams <- event$competitions[[1]]$competitors
-  list(
-    team = teams[[1]]$team$name,
-    opponent = teams[[2]]$team$name,
-    score = teams[[1]]$score,
-    opponent_score = teams[[2]]$score,
-    date = event$date,
-    completed = event$status$type$completed
-  )
+           home_score = as.integer(home_score),
+           away_score = as.integer(away_score)) %>%
+    dplyr::select(-completed)
 }
