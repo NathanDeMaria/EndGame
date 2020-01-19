@@ -3,17 +3,17 @@ from typing import NamedTuple, Optional, List, Dict
 
 
 class Game(NamedTuple):
-    team: str
-    team_score: int
-    opponent: str
-    opponent_score: int
-    is_home: Optional[bool]  # None if neutral site
+    home: str
+    home_score: int
+    away: str
+    away_score: int
+    neutral_site: bool
     completed: bool
-    datetime: datetime
+    date: datetime
 
     @property
     def column_names(self) -> List[str]:
-        return list(self._asdict().keys())
+        return list(self.to_dict().keys())
     
     def to_dict(self) -> Dict:
         return self._asdict()

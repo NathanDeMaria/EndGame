@@ -39,18 +39,20 @@ async def update(location: str = 'nfl.csv'):
     now = datetime.utcnow()
     end_year = now.year - 1 if (now.month, now.day) < SEASON_END else now.year
 
-    games = []
-    for year in range(2000, end_year + 1):
-        season = await get_season(year)
-        for week in season.weeks:
-            for game in week.games:
-                games.append(game)
-    
+    seasons = [(await get_season(year)) for year in range(1999, end_year + 1)]
+
     with open(location, 'w') as f:
-        writer = DictWriter(f, fieldnames=games[0].column_names)
+        writer = DictWriter(f, fieldnames=['season', 'week'] + seasons[0].weeks[0].games[0].column_names)
         writer.writeheader()
-        for g in games:
-            writer.writerow(g.to_dict())
+        for season in seasons:
+            for week in season.weeks:
+                # TODO: set week.number appropriately for the postseason
+                for game in week.games:
+                    writer.writerow(dict(
+                        season=season.year,
+                        week=week.number,
+                        **game.to_dict(),
+                    ))
 
 
 async def get_season(year: int) -> Season:
@@ -63,7 +65,7 @@ async def get_season(year: int) -> Season:
     weeks = []
     for week in range(1, 18):
         weeks.append(await get_week(year, week, SeasonType.regular))
-    for week in range(1, 5):
+    for week in range(1, 6):
         weeks.append(await get_week(year, week, SeasonType.post))
     season = Season(weeks, year)
 
@@ -114,7 +116,7 @@ async def get_week(season: int, week: int, season_type: int) -> Week:
     for event in tree['events']:
         game = parse_game(event)
         game = _move_teams(game)
-        if game.team in REAL_TEAMS and game.completed:
+        if game.home in REAL_TEAMS and game.completed:
             # To skip the pro-bowl and whatever names they come up with
             games.append(game)
 
@@ -126,8 +128,8 @@ async def get_week(season: int, week: int, season_type: int) -> Week:
 
 def _move_teams(game: Game) -> Game:
     d = game.to_dict()
-    d['opponent'] = _move_team_name(d['opponent'])
-    d['team'] = _move_team_name(d['team'])
+    d['away'] = _move_team_name(d['away'])
+    d['home'] = _move_team_name(d['home'])
     return Game(**d)
 
 

@@ -11,21 +11,27 @@ def parse_game(event: Dict) -> Game:
     assert len(competitiors) == 2
     completed = event['status']['type']['completed']
 
-    if competition['neutralSite']:
-        is_home = None
+    neutral_site = competition['neutralSite']
+    if neutral_site:
+        # Doesn't matter
+        home_index, away_index = 0, 1
     else:
-        is_home = competitiors[0].is_home
-        if not (is_home ^ competitiors[1].is_home):
+        first_home = competitiors[0].is_home
+        if not (first_home ^ competitiors[1].is_home):
             raise ValueError("Not neutral site, and not exactly 1 team is marked as home")
+        if first_home:
+            home_index, away_index = 0, 1
+        else:
+            home_index, away_index = 1, 0
 
     return Game(
-        team=competitiors[0].name,
-        team_score=competitiors[0].score,
-        opponent=competitiors[1].name,
-        opponent_score=competitiors[1].score,
-        is_home=is_home,
+        home=competitiors[home_index].name,
+        home_score=competitiors[home_index].score,
+        away=competitiors[away_index].name,
+        away_score=competitiors[away_index].score,
+        neutral_site=neutral_site,
         completed=completed,
-        datetime=parser.parse(event['date'])
+        date=parser.parse(event['date'])
     )
 
 
