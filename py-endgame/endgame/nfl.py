@@ -46,7 +46,6 @@ async def update(location: str = 'nfl.csv'):
         writer.writeheader()
         for season in seasons:
             for week in season.weeks:
-                # TODO: set week.number appropriately for the postseason
                 for game in week.games:
                     writer.writerow(dict(
                         season=season.year,
@@ -123,6 +122,8 @@ async def get_week(season: int, week: int, season_type: int) -> Week:
     if all(g.completed for g in games):
         await content.save_if_necessary()
 
+    if season_type == SeasonType.post:
+        week += 17
     return Week(games, week)
 
 
