@@ -50,9 +50,10 @@ async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
         try:
             return await _get_web(url, parameters)
         except aiohttp.client_exceptions.ClientResponseError as e:
-            logger.warning(f"Struggling to get {url}. Status code {e.status}, Attempt number {i + 1}")
+            sleep_duration_s = (0.95  + 0.1 * random.random()) * ((i + 1) ** 2)
+            logger.warning(f"Struggling to get {url}. Status code {e.status}. Attempt number {i + 1}. Sleeping for {sleep_duration_s:.02f}")
             # Exponential backoff w/ +/- 10% jitter
-            await asyncio.sleep((0.95  + 0.1 * random.random()) * ((i + 1) ** 2))
+            await asyncio.sleep(sleep_duration_s)
     raise e
 
 
