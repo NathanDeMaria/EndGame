@@ -46,15 +46,17 @@ async def get(url: str, parameters: RequestParameters = None) -> CacheableConten
 
 
 async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
-    for i in range(5):
+    max_retries = 5
+    for i in range(max_retries):
         try:
             return await _get_web(url, parameters)
         except aiohttp.client_exceptions.ClientResponseError as e:
+            if i + 1 == max_retries:
+                raise e
             sleep_duration_s = (0.95  + 0.1 * random.random()) * ((i + 1) ** 2)
             logger.warning(f"Struggling to get {url}. Status code {e.status}. Attempt number {i + 1}. Sleeping for {sleep_duration_s:.02f}")
             # Exponential backoff w/ +/- 10% jitter
             await asyncio.sleep(sleep_duration_s)
-    raise e
 
 
 async def _get_web(url: str, parameters: RequestParameters) -> bytes:

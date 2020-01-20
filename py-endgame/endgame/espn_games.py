@@ -1,7 +1,24 @@
-from typing import Dict, NamedTuple
+"""
+Parsing games from the ESPN API
+"""
+import json
+from typing import Dict, NamedTuple, List
 from dateutil import parser
 
 from .types import Game
+from .web import RequestParameters, get
+
+
+async def get_games(url: str, parameters: RequestParameters) -> List[Game]:
+    content = await get(url, parameters)
+    tree = json.loads(content.data)
+
+    games: List[Game] = [parse_game(e) for e in tree['events']]
+
+    if all(g.completed for g in games):
+        await content.save_if_necessary()
+
+    return [g for g in games if g.completed]
 
 
 def parse_game(event: Dict) -> Game:

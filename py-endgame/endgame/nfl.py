@@ -8,8 +8,8 @@ from typing import Dict, List, Optional, Union
 
 from .config import CONFIG
 from .types import Game, Week, Season
-from .parse_football import parse_game
-from .web import get
+from .espn_games import get_games
+from .web import RequestParameters
 
 
 logger = getLogger(__name__)
@@ -33,6 +33,7 @@ REAL_TEAMS = frozenset([
     "Oakland Raiders", "Philadelphia Eagles", "Pittsburgh Steelers", "San Francisco 49ers",
     "Seattle Seahawks", "Tampa Bay Buccaneers", "Tennessee Titans", "Washington Redskins",
 ])
+N_REGULAR_WEEKS = 17
 
 
 async def update(location: str = 'nfl.csv'):
@@ -62,7 +63,7 @@ async def get_season(year: int) -> Season:
 
     # This "season" is 2019 for the season whose Super Bowl is in 2020
     weeks = []
-    for week in range(1, 18):
+    for week in range(1, N_REGULAR_WEEKS + 1):
         weeks.append(await get_week(year, week, SeasonType.regular))
     for week in range(1, 6):
         weeks.append(await get_week(year, week, SeasonType.post))
@@ -98,7 +99,7 @@ def _build_cache_path(year: int) -> Path:
 
 async def get_week(season: int, week: int, season_type: int) -> Week:
     logger.info(f"Getting NFL {season} week {week}")
-    parameters: Dict[str, Union[str, int]] = dict(
+    parameters: RequestParameters = dict(
         lang='en',
         region='us',
         calendartype='blacklist',
@@ -108,22 +109,15 @@ async def get_week(season: int, week: int, season_type: int) -> Week:
         week=week,
     )
 
-    content = await get(BASE_URL, parameters)
-    tree = json.loads(content.data)
-
-    games: List[Game] = []
-    for event in tree['events']:
-        game = parse_game(event)
-        game = _move_teams(game)
-        if game.home in REAL_TEAMS and game.completed:
-            # To skip the pro-bowl and whatever names they come up with
-            games.append(game)
-
-    if all(g.completed for g in games):
-        await content.save_if_necessary()
+    games = await get_games(BASE_URL, parameters)
+    games = [
+        _move_teams(g)
+        for g in games
+        if g.home in REAL_TEAMS
+    ]
 
     if season_type == SeasonType.post:
-        week += 17
+        week += N_REGULAR_WEEKS
     return Week(games, week)
 
 
