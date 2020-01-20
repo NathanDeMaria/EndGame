@@ -7,18 +7,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from .config import CONFIG
-from .types import Game, Week, Season
+from .types import Game, Week, Season, SeasonType
 from .espn_games import get_games
 from .web import RequestParameters
 
 
 logger = getLogger(__name__)
 
-
-class SeasonType:
-    pre = 1
-    regular = 2
-    post = 3
 
 # Say each season ends on March 1st
 SEASON_END = (3, 1)
@@ -97,14 +92,14 @@ def _build_cache_path(year: int) -> Path:
     return Path(CONFIG.cache_dir, f'nfl_season_{year}.pkl')
 
 
-async def get_week(season: int, week: int, season_type: int) -> Week:
+async def get_week(season: int, week: int, season_type: SeasonType) -> Week:
     logger.info(f"Getting NFL {season} week {week}")
     parameters: RequestParameters = dict(
         lang='en',
         region='us',
         calendartype='blacklist',
         limit=32,
-        seasontype=season_type,
+        seasontype=season_type.value,
         dates=season,
         week=week,
     )

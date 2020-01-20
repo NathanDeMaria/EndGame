@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum
 from typing import NamedTuple, Optional, List, Dict
 
 
@@ -24,6 +25,26 @@ class Week(NamedTuple):
     number: int
 
 
+class NcaaFbGroup(Enum):
+    fbs = 80
+    fcs = 81
+    d23 = 35  # two AND three
+
+
+class SeasonType(Enum):
+    regular = 2
+    post = 3
+
+
+class WeekParams(NamedTuple):
+    year: int
+    week: int
+    season_type: SeasonType
+    # Only have these on the NCAAFB for now...fine?
+    group: NcaaFbGroup
+
+
 class Season(NamedTuple):
     weeks: List[Week]
     year: int
+    trouble_weeks: List[WeekParams] = None

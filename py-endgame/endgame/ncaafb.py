@@ -1,8 +1,9 @@
+import aiohttp
 from datetime import datetime
-from enum import Enum
 from logging import getLogger
+from typing import List
 
-from .types import Week, Season
+from .types import Week, Season, WeekParams, NcaaFbGroup, SeasonType
 from .espn_games import get_games
 from .web import RequestParameters
 
@@ -12,18 +13,6 @@ logger = getLogger(__name__)
 
 BASE_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard'
 N_REGULAR_WEEKS = 16
-
-class NcaaFbGroup(Enum):
-    fbs = 80
-    fcs = 81
-    d23 = 35  # two AND three
-
-
-class SeasonType(Enum):
-    regular = 2
-    post = 3
-
-
 SEASON_END = (2, 1)
 
 
@@ -37,13 +26,24 @@ async def update():
 
 
 async def get_season(year):
-    weeks = []
+    week_params: List[WeekParams] = []
     for group in NcaaFbGroup:
         for week_num in range(1, N_REGULAR_WEEKS + 1):
-            week = await _get_week(year, week_num, SeasonType.regular, group)
+            week_params.append((year, week_num, SeasonType.regular, group))
+        week_params.append((year, 1, SeasonType.post, group))
+
+    weeks = []
+    trouble_weeks: List[WeekParams] = []
+    for week_param in week_params:
+        try:
+            week = await _get_week(*week_param)
             weeks.append(week)
-        weeks.append(await _get_week(year, 1, SeasonType.post, group))
-    return Season(year, weeks)
+        # Should I raise custom exception instead?
+        except aiohttp.client_exceptions.ClientResponseError:
+            year, week, season_type, group = week_param
+            logger.warning(f"Marking week as trouble: {year=} {week=} type={season_type.name} group={group.name}")
+            trouble_weeks.append(week_param)
+    return Season(year, weeks, trouble_weeks)
 
 
 async def _get_week(
