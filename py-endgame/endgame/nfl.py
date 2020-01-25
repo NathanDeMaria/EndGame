@@ -5,7 +5,8 @@ from datetime import datetime
 from logging import getLogger
 from typing import Dict, List, Optional, Union
 
-from .espn_games import get_games
+from .async_tools import apply_in_parallel
+from .espn_games import get_games, save_seasons
 from .season_cache import SeasonCache
 from .types import Game, Week, Season, SeasonType
 from .web import RequestParameters
@@ -34,19 +35,9 @@ async def update(location: str = 'nfl.csv'):
     now = datetime.utcnow()
     end_year = now.year - 1 if (now.month, now.day) < SEASON_END else now.year
 
-    seasons = [(await get_season(year)) for year in range(1999, end_year + 1)]
-
-    with open(location, 'w') as f:
-        writer = DictWriter(f, fieldnames=['season', 'week'] + seasons[0].weeks[0].games[0].column_names)
-        writer.writeheader()
-        for season in seasons:
-            for week in season.weeks:
-                for game in week.games:
-                    writer.writerow(dict(
-                        season=season.year,
-                        week=week.number,
-                        **game.to_dict(),
-                    ))
+    args = [[y] for y in range(1999, end_year + 1)]
+    seasons = [s async for s in apply_in_parallel(get_season, args)]
+    save_seasons(seasons, location)
 
 
 async def get_season(year: int) -> Season:

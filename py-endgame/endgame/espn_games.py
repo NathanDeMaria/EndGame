@@ -2,11 +2,35 @@
 Parsing games from the ESPN API
 """
 import json
-from typing import Dict, NamedTuple, List
+from csv import DictWriter
 from dateutil import parser
+from typing import Dict, NamedTuple, List
 
-from .types import Game
+from .types import Game, Season
 from .web import RequestParameters, get
+
+
+def save_seasons(seasons: List[Season], location: str):
+    field_names = ['season', 'week'] + _get_first_game(seasons).column_names
+    with open(location, 'w') as f:
+        writer = DictWriter(f, fieldnames=field_names)
+        writer.writeheader()
+        for season in seasons:
+            for week in season.weeks:
+                for game in week.games:
+                    writer.writerow(dict(
+                        season=season.year,
+                        week=week.number,
+                        **game.to_dict(),
+                    ))
+
+
+def _get_first_game(seasons: List[Season]) -> Game:
+    for s in seasons:
+        for w in s.weeks:
+            for g in w.games:
+                return g
+    raise ValueError("No games to save")
 
 
 async def get_games(url: str, parameters: RequestParameters) -> List[Game]:

@@ -47,4 +47,4 @@ class WeekParams(NamedTuple):
 class Season(NamedTuple):
     weeks: List[Week]
     year: int
-    trouble_weeks: List[WeekParams] = None
+    trouble_weeks: Optional[List[WeekParams]] = None

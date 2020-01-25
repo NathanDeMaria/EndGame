@@ -59,6 +59,7 @@ async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
             full_url = f'{url}?{param_string}' if param_string else url
             logger.warning(f"Struggling to get {full_url} Status code {e.status}. Attempt number {i + 1}. Sleeping for {sleep_duration_s:.02f}")
             await asyncio.sleep(sleep_duration_s)
+    raise Exception("Should never reach here, this is just for mypy")
 
 
 async def _get_web(url: str, parameters: RequestParameters) -> bytes:
