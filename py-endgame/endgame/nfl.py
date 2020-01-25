@@ -3,12 +3,11 @@ import pickle
 from csv import DictWriter
 from datetime import datetime
 from logging import getLogger
-from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from .config import CONFIG
-from .types import Game, Week, Season, SeasonType
 from .espn_games import get_games
+from .season_cache import SeasonCache
+from .types import Game, Week, Season, SeasonType
 from .web import RequestParameters
 
 
@@ -52,7 +51,8 @@ async def update(location: str = 'nfl.csv'):
 
 async def get_season(year: int) -> Season:
     logger.info(f"Getting NFL season {year}")
-    s = _check_cache(year)
+    cache = SeasonCache('nfl')
+    s = cache.check_cache(year)
     if s:
         return s
 
@@ -67,29 +67,9 @@ async def get_season(year: int) -> Season:
     # Cache if the season is over
     season_end_date = datetime(year + 1, *SEASON_END)
     if datetime.utcnow() > season_end_date:
-        _save_to_cache(year, season)
+        cache.save_to_cache(year, season)
 
     return season
-
-
-def _check_cache(season: int) -> Optional[Season]:
-    path = _build_cache_path(season)
-    if not path.is_file():
-        return None
-    with open(str(path), 'rb+') as f:
-        return pickle.load(f)
-
-
-def _save_to_cache(year: int, season: Season):
-    path = _build_cache_path(year)
-    if path.is_file():
-        raise ValueError(f"Trying to overwrite cache at {str(path)}")
-    with open(str(path), 'wb+') as f:
-        pickle.dump(season, f)
-
-
-def _build_cache_path(year: int) -> Path:
-    return Path(CONFIG.cache_dir, f'nfl_season_{year}.pkl')
 
 
 async def get_week(season: int, week: int, season_type: SeasonType) -> Week:

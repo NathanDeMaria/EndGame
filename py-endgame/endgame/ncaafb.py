@@ -5,6 +5,7 @@ from typing import List
 
 from .types import Week, Season, WeekParams, NcaaFbGroup, SeasonType
 from .espn_games import get_games
+from .season_cache import SeasonCache
 from .web import RequestParameters
 
 
@@ -17,15 +18,23 @@ SEASON_END = (2, 1)
 
 
 async def update():
-    # TODO: make a SeasonCache class?
     # TODO: share this "end year" logic?
     now = datetime.utcnow()
     end_year = now.year - 1 if (now.month, now.day) < SEASON_END else now.year
-    for year in range(1999, end_year):
+    # TODO: use https://github.com/talkpython/async-techniques-python-course/blob/6c417a48a86a32413f3614a7a6bfe5cc96cb7687/src/04-asyncio/web_scraping/async_scrape/program.py#L49-L59
+    # to actually do these in ||
+    for year in range(1999, end_year + 1):
         await get_season(year)
 
 
-async def get_season(year):
+async def get_season(year: int):
+    logger.info(f"Getting NCAA season {year}")
+    cache = SeasonCache('ncaafb')
+    s = cache.check_cache(year)
+    # TODO: add an option to ignore the cache if it has any skipped weeks?
+    if s:
+        return s
+
     week_params: List[WeekParams] = []
     for group in NcaaFbGroup:
         for week_num in range(1, N_REGULAR_WEEKS + 1):
@@ -43,14 +52,21 @@ async def get_season(year):
             year, week, season_type, group = week_param
             logger.warning(f"Marking week as trouble: {year=} {week=} type={season_type.name} group={group.name}")
             trouble_weeks.append(week_param)
-    return Season(year, weeks, trouble_weeks)
+    season = Season(year, weeks, trouble_weeks)
+
+    # Cache if the season is over
+    season_end_date = datetime(year + 1, *SEASON_END)
+    if datetime.utcnow() > season_end_date:
+        cache.save_to_cache(year, season)
+
+    return season
 
 
 async def _get_week(
         year: int, week: int,
         season_type: SeasonType, group: NcaaFbGroup
 ) -> Week:
-    logger.info(f"Getting NCAAFB {year} week {week} for {group.name}")
+    logger.info(f"Getting NCAAFB {year} {season_type.name} week {week} for {group.name}")
     parameters: RequestParameters = dict(
         lang='en',
         region='us',
