@@ -39,7 +39,10 @@ async def get_games(url: str, parameters: RequestParameters) -> List[Game]:
 
     games: List[Game] = [parse_game(e) for e in tree['events']]
 
-    if all(g.completed for g in games):
+    # Don't cache games if there are none here.
+    # I ran into an issue with this when getting a postseason week
+    # that would eventually have games, but the matchups weren't scheduled yet.
+    if all(g.completed for g in games) and games:
         await content.save_if_necessary()
 
     return [g for g in games if g.completed]

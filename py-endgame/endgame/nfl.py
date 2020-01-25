@@ -64,7 +64,7 @@ async def get_season(year: int) -> Season:
 
 
 async def get_week(season: int, week: int, season_type: SeasonType) -> Week:
-    logger.info(f"Getting NFL {season} week {week}")
+    logger.info(f"Getting NFL {season} {season_type.name} week {week}")
     parameters: RequestParameters = dict(
         lang='en',
         region='us',
