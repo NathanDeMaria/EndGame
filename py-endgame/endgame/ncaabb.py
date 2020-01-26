@@ -9,6 +9,7 @@ from .async_tools import apply_in_parallel
 from .date import get_end_year
 from .types import Game, Season, Week
 from .espn_games import get_games, save_seasons
+from .season_cache import SeasonCache
 from .web import RequestParameters
 
 
@@ -52,24 +53,26 @@ async def update(gender: NcaabbGender, location = None):
     if location is None:
         location = f'ncaa{gender.name[0]}bb.csv'
     end_year = get_end_year(SEASON_END)
-    # TODO: more than just this year
-    args = [[y, gender] for y in range(end_year, end_year + 1)]
+    args = [[y, gender] for y in range(2001, end_year + 1)]
     seasons = [s async for s in apply_in_parallel(get_ncaabb_season, args)]
     save_seasons(seasons, location)
 
 
 async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
     logger.info(f"Getting NCAABB {gender.name} season {year}")
-    # TODO: season cache
+    cache = SeasonCache(f'ncaa{gender.name[0]}bb')
+    s = cache.check_cache(year)
+    if s:
+        return s
 
     day_params: List[DayParams] = []
     start = date(year, *REGULAR_SEASON_START)
     end = date(year + 1, *REGULAR_SEASON_END)
     for day in _date_range(start, end):
         day_params.append(DayParams(day, gender, NcaabbGroup.d1))
+    start = date(year + 1, *POST_SEASON_START)
+    end = date(year + 1, *SEASON_END)
     for group in POSTSEASON_GROUPS:
-        start = date(year + 1, *POST_SEASON_START)
-        end = date(year + 1, *SEASON_END)
         for day in _date_range(start, end):
             day_params.append(DayParams(day, gender, group))
 
@@ -91,6 +94,10 @@ async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
         in enumerate(week_groups)
     ]
     season = Season(weeks, year, trouble_days)
+
+    if datetime.utcnow() > datetime(year + 1, *SEASON_END):
+        cache.save_to_cache(year, season)
+
     return season
 
 
