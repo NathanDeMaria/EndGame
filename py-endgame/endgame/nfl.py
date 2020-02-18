@@ -6,6 +6,7 @@ from logging import getLogger
 from typing import Dict, List, Optional, Union
 
 from .async_tools import apply_in_parallel
+from .date import get_end_year
 from .espn_games import get_games, save_seasons
 from .season_cache import SeasonCache
 from .types import Game, Week, Season, SeasonType
@@ -32,9 +33,7 @@ N_REGULAR_WEEKS = 17
 
 
 async def update(location: str = 'nfl.csv'):
-    now = datetime.utcnow()
-    end_year = now.year - 1 if (now.month, now.day) < SEASON_END else now.year
-
+    end_year = get_end_year(SEASON_END)
     args = [[y] for y in range(1999, end_year + 1)]
     seasons = [s async for s in apply_in_parallel(get_season, args)]
     save_seasons(seasons, location)

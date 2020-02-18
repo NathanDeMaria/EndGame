@@ -5,6 +5,7 @@ from logging import getLogger
 from typing import List, Iterator
 
 from .async_tools import apply_in_parallel
+from .date import get_end_year
 from .types import Game, Week, Season, WeekParams, NcaaFbGroup, SeasonType
 from .espn_games import get_games, save_seasons
 from .season_cache import SeasonCache
@@ -21,8 +22,7 @@ SEASON_END = (2, 1)
 
 async def update(location = 'ncaaf.csv'):
     # TODO: share this "end year" logic?
-    now = datetime.utcnow()
-    end_year = now.year - 1 if (now.month, now.day) < SEASON_END else now.year
+    end_year = get_end_year(SEASON_END)
     args = [[y] for y in range(1999, end_year + 1)]
     seasons = [s async for s in apply_in_parallel(get_season, args)]
     save_seasons(seasons, location)
@@ -70,7 +70,7 @@ def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:
     # ...I'm not totally sure that's the case
     key = lambda w: w.number
     for number, matched_weeks in groupby(sorted(weeks, key=key), key=key):
-        games = []
+        games: List[Game] = []
         for week in matched_weeks:
             games += week.games
         yield Week(list(set(games)), number)
