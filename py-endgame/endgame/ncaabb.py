@@ -68,10 +68,14 @@ async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
     day_params: List[DayParams] = []
     start = date(year, *REGULAR_SEASON_START)
     end = date(year + 1, *REGULAR_SEASON_END)
+    # Don't try to get dates in the future
+    end = min(end, date.today())
     for day in _date_range(start, end):
         day_params.append(DayParams(day, gender, NcaabbGroup.d1))
     start = date(year + 1, *POST_SEASON_START)
     end = date(year + 1, *SEASON_END)
+    # Don't try to get dates in the future
+    end = min(end, date.today())
     for group in POSTSEASON_GROUPS:
         for day in _date_range(start, end):
             day_params.append(DayParams(day, gender, group))
@@ -124,4 +128,7 @@ async def get_ncaabb_games(game_date: date, gender: NcaabbGender, group: NcaabbG
         dates=game_date.strftime('%Y%m%d'),
         groups=group.value,
     )
-    return await get_games(NCAABB_SCOREBOARD.format(gender.name), parameters)
+    games = await get_games(NCAABB_SCOREBOARD.format(gender.name), parameters)
+    # Filtering thanks to Montana State Bobcats at Northern Arizona Lumberjacks on 2003-02-28
+    # and a bunch of NCAAWBB games
+    return [g for g in games if g.home_score > 0 or g.away_score > 0]
