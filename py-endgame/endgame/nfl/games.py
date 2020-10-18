@@ -116,4 +116,5 @@ def _move_team_name(old_name: str) -> str:
         old_name.replace("San Diego", "Los Angeles")
         .replace("St. Louis", "Los Angeles")
         .replace("Washington Redskins", "Washington")
+        .replace("Oakland Raiders", "Las Vegas Raiders")
     )
