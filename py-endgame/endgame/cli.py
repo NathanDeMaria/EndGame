@@ -1,7 +1,7 @@
 import asyncio
 from fire import Fire
 
-from .nfl import update, save_coaches
+from .nfl import update, save_coaches, save_spreads
 from .ncaafb import update as update_ncaafb
 from .ncaabb import update as update_ncaabb, NcaabbGender
 
@@ -9,6 +9,9 @@ from .ncaabb import update as update_ncaabb, NcaabbGender
 class Main:
     def save_nfl_coaches(self):
         asyncio.run(save_coaches())
+
+    def save_nfl_spreads(self):
+        asyncio.run(save_spreads())
 
     def update(self, league: str):
         if league == "nfl":

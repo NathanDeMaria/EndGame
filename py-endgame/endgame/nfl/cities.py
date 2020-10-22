@@ -1,0 +1,45 @@
+from .teams import NflTeam
+
+
+# Cities, as referenced by footballlocks.com
+CITIES = {
+    "Arizona": NflTeam.cardinals,
+    "Atlanta": NflTeam.falcons,
+    "Baltimore": NflTeam.ravens,
+    "Buffalo": NflTeam.bills,
+    "Carolina": NflTeam.panthers,
+    "Chicago": NflTeam.bears,
+    "Cincinnati": NflTeam.bengals,
+    "Cleveland": NflTeam.browns,
+    "Dallas": NflTeam.cowboys,
+    "Denver": NflTeam.broncos,
+    "Detroit": NflTeam.lions,
+    "Green Bay": NflTeam.packers,
+    "Houston": NflTeam.texans,
+    "Indianapolis": NflTeam.colts,
+    "Jacksonville": NflTeam.jaguars,
+    "Kansas City": NflTeam.chiefs,
+    "San Diego": NflTeam.chargers,
+    "LA Chargers": NflTeam.chargers,
+    "Chargers": NflTeam.chargers,
+    "St. Louis": NflTeam.rams,
+    "LA Rams": NflTeam.rams,
+    # In 2016, the Rams were the only LA team
+    "Los Angeles": NflTeam.rams,
+    "Oakland": NflTeam.raiders,
+    "Miami": NflTeam.dolphins,
+    "Minnesota": NflTeam.vikings,
+    "New Orleans": NflTeam.saints,
+    "New England": NflTeam.patriots,
+    "NY Giants": NflTeam.giants,
+    "NY Jets": NflTeam.jets,
+    "Philadelphia": NflTeam.eagles,
+    "Pittsburgh": NflTeam.steelers,
+    "Seattle": NflTeam.seahawks,
+    "San Francisco": NflTeam.niners,
+    # Lol, somebody couldn't spell
+    "San Francsico": NflTeam.niners,
+    "Tampa Bay": NflTeam.buccaneers,
+    "Tennessee": NflTeam.titans,
+    "Washington": NflTeam.washington,
+}
