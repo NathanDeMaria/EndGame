@@ -8,6 +8,8 @@ from endgame.season_cache import SeasonCache
 from endgame.types import Game, Week, Season, SeasonType
 from endgame.web import RequestParameters
 
+from .teams import NflTeam
+
 
 logger = getLogger(__name__)
 
@@ -112,9 +114,11 @@ def _move_teams(game: Game) -> Game:
 
 
 def _move_team_name(old_name: str) -> str:
-    return (
+    tidy_name = (
         old_name.replace("San Diego", "Los Angeles")
         .replace("St. Louis", "Los Angeles")
         .replace("Washington Redskins", "Washington")
         .replace("Oakland Raiders", "Las Vegas Raiders")
+        .replace("49ers", "niners")
     )
+    return NflTeam[tidy_name.split(" ")[-1].lower()].name
