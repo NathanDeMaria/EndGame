@@ -166,12 +166,12 @@ def _parse_row(table_row: Tag) -> Optional[Tuple[NflTeam, NflTeam, float]]:
     team1 = tidy_name(team1)
     team2 = tidy_name(team2)
     if "At " in team1:
-        away = team1.replace("At ", "", 1)
-        home = team2
+        home = team1.replace("At ", "", 1)
+        away = team2
         spread = -spread
     else:
-        away = team2.replace("At ", "", 1)
-        home = team1
+        home = team2.replace("At ", "", 1)
+        away = team1
     return CITIES[home], CITIES[away], spread
 
 
