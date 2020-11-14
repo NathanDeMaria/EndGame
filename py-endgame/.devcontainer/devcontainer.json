@@ -26,8 +26,6 @@
   },
   "extensions": ["ms-python.python", "ms-python.vscode-pylance"],
   "mounts": [
-    "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached,ro=1",
-    "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached,ro=1",
     "source=endgame-bashhistory,target=/commandhistory,type=volume"
   ]
 }
