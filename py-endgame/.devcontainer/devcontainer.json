@@ -26,6 +26,7 @@
   },
   "extensions": ["ms-python.python", "ms-python.vscode-pylance"],
   "mounts": [
-    "source=endgame-bashhistory,target=/commandhistory,type=volume"
+    "source=endgame-bashhistory,target=/commandhistory,type=volume",
+    "source=${localEnv:HOME}/.endgame/cache,target=/root/.endgame/cache,type=bind,consistency=cached"
   ]
 }
