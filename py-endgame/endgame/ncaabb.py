@@ -16,15 +16,16 @@ from .web import RequestParameters
 logger = getLogger(__name__)
 
 
-NCAABB_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/basketball/{}-college-basketball/scoreboard'
+NCAABB_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/basketball/{}-college-basketball/scoreboard"
 REGULAR_SEASON_START = (11, 1)
 REGULAR_SEASON_END = (4, 1)
 POST_SEASON_START = (3, 1)
 SEASON_END = (4, 30)
 
+
 class NcaabbGender(Enum):
-    womens = 'womens'
-    mens = 'mens'
+    womens = "womens"
+    mens = "mens"
 
 
 class NcaabbGroup(Enum):
@@ -35,12 +36,15 @@ class NcaabbGroup(Enum):
     cbi = 55
     cit = 56
 
-POSTSEASON_GROUPS = frozenset([
-    NcaabbGroup.ncaa,
-    NcaabbGroup.nit,
-    NcaabbGroup.cbi,
-    NcaabbGroup.cit,
-])
+
+POSTSEASON_GROUPS = frozenset(
+    [
+        NcaabbGroup.ncaa,
+        NcaabbGroup.nit,
+        NcaabbGroup.cbi,
+        NcaabbGroup.cit,
+    ]
+)
 
 
 class DayParams(NamedTuple):
@@ -49,9 +53,9 @@ class DayParams(NamedTuple):
     group: NcaabbGroup
 
 
-async def update(gender: NcaabbGender, location = None):
+async def update(gender: NcaabbGender, location=None):
     if location is None:
-        location = f'ncaa{gender.name[0]}bb.csv'
+        location = f"ncaa{gender.name[0]}bb.csv"
     end_year = get_end_year(SEASON_END)
     args = [[y, gender] for y in range(2001, end_year + 1)]
     seasons = [s async for s in apply_in_parallel(get_ncaabb_season, args)]
@@ -60,7 +64,7 @@ async def update(gender: NcaabbGender, location = None):
 
 async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
     logger.info(f"Getting NCAABB {gender.name} season {year}")
-    cache = SeasonCache(f'ncaa{gender.name[0]}bb')
+    cache = SeasonCache(f"ncaa{gender.name[0]}bb")
     s = cache.check_cache(year)
     if s:
         return s
@@ -89,13 +93,14 @@ async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
             day, gender, group = day_param
             logger.warning(f"Marking {day} for {gender.name} {group.name} as trouble")
             trouble_days.append(day_param)
-    
+
     # Group into weeks.
-    week_groups = groupby(sorted(games, key=lambda g: g.date), key=lambda g: _get_week(g.date))
+    week_groups = groupby(
+        sorted(games, key=lambda g: g.date), key=lambda g: _get_week(g.date)
+    )
     weeks = [
         Week(list(week_games), week_num + 1)
-        for week_num, (_, week_games)
-        in enumerate(week_groups)
+        for week_num, (_, week_games) in enumerate(week_groups)
     ]
     season = Season(weeks, year, trouble_days)
 
@@ -118,14 +123,16 @@ def _date_range(start: date, end: date) -> List[date]:
     return [start + timedelta(days=offset) for offset in range(days)]
 
 
-async def get_ncaabb_games(game_date: date, gender: NcaabbGender, group: NcaabbGroup) -> List[Game]:
+async def get_ncaabb_games(
+    game_date: date, gender: NcaabbGender, group: NcaabbGroup
+) -> List[Game]:
     logger.info(f"Getting NCAABB {gender.value} {game_date} {group.name}")
     parameters: RequestParameters = dict(
-        lang='en',
-        region='us',
-        calendartype='blacklist',
+        lang="en",
+        region="us",
+        calendartype="blacklist",
         limit=300,
-        dates=game_date.strftime('%Y%m%d'),
+        dates=game_date.strftime("%Y%m%d"),
         groups=group.value,
     )
     games = await get_games(NCAABB_SCOREBOARD.format(gender.name), parameters)

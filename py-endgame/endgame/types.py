@@ -15,7 +15,7 @@ class Game(NamedTuple):
     @property
     def column_names(self) -> List[str]:
         return list(self.to_dict().keys())
-    
+
     def to_dict(self) -> Dict:
         return self._asdict()
 

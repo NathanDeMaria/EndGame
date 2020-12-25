@@ -15,21 +15,24 @@ from .web import RequestParameters
 logger = getLogger(__name__)
 
 
-BASE_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard'
+BASE_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard"
+)
 N_REGULAR_WEEKS = 16
 SEASON_END = (2, 1)
 
 
-async def update(location = 'ncaaf.csv'):
+async def update(location="ncaaf.csv"):
     # TODO: share this "end year" logic?
     end_year = get_end_year(SEASON_END)
     args = [[y] for y in range(1999, end_year + 1)]
     seasons = [s async for s in apply_in_parallel(get_season, args)]
     save_seasons(seasons, location)
 
+
 async def get_season(year: int):
     logger.info(f"Getting NCAA season {year}")
-    cache = SeasonCache('ncaafb')
+    cache = SeasonCache("ncaafb")
     s = cache.check_cache(year)
     # TODO: add an option to ignore the cache if it has any skipped weeks?
     if s:
@@ -50,9 +53,11 @@ async def get_season(year: int):
         # Should I raise custom exception instead?
         except aiohttp.client_exceptions.ClientResponseError:
             year, week_num, season_type, group = week_param
-            logger.warning(f"Marking week as trouble: {year=} {week_num=} type={season_type.name} group={group.name}")
+            logger.warning(
+                f"Marking week as trouble: {year=} {week_num=} type={season_type.name} group={group.name}"
+            )
             trouble_weeks.append(week_param)
-    
+
     weeks = list(_remove_cross_division_duplicates(weeks))
     season = Season(weeks, year, trouble_weeks)
 
@@ -77,14 +82,15 @@ def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:
 
 
 async def _get_week(
-        year: int, week: int,
-        season_type: SeasonType, group: NcaaFbGroup
+    year: int, week: int, season_type: SeasonType, group: NcaaFbGroup
 ) -> Week:
-    logger.info(f"Getting NCAAFB {year} {season_type.name} week {week} for {group.name}")
+    logger.info(
+        f"Getting NCAAFB {year} {season_type.name} week {week} for {group.name}"
+    )
     parameters: RequestParameters = dict(
-        lang='en',
-        region='us',
-        calendartype='blacklist',
+        lang="en",
+        region="us",
+        calendartype="blacklist",
         limit=300,
         seasontype=season_type.value,
         dates=year,
@@ -101,8 +107,8 @@ async def _get_week(
 
 def _rename_teams(game: Game) -> Game:
     d = game.to_dict()
-    d['away'] = _rename_team(d['away'])
-    d['home'] = _rename_team(d['home'])
+    d["away"] = _rename_team(d["away"])
+    d["home"] = _rename_team(d["home"])
     return Game(**d)
 
 
