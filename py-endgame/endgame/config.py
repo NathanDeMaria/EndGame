@@ -1,8 +1,13 @@
 import os
 from pathlib import Path
 
-# TODO: implement other types
+
 def config_value(name: str, default: str):
+    """
+    Get a config value.
+    Currently only supports string type values.
+    """
+
     def get(_):
         return os.getenv(name, default)
 

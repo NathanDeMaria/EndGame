@@ -1,11 +1,12 @@
-import aiohttp
 from datetime import date, timedelta, datetime
 from enum import Enum
 from itertools import groupby
 from logging import getLogger
 from typing import List, NamedTuple
+import aiohttp
 
 from .async_tools import apply_in_parallel
+from .constants import ESPN_SPORTS_API_BASE
 from .date import get_end_year
 from .types import Game, Season, Week
 from .espn_games import get_games, save_seasons
@@ -16,7 +17,9 @@ from .web import RequestParameters
 logger = getLogger(__name__)
 
 
-NCAABB_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/basketball/{}-college-basketball/scoreboard"
+NCAABB_SCOREBOARD = (
+    f"{ESPN_SPORTS_API_BASE}/basketball/{{}}-college-basketball/scoreboard"
+)
 REGULAR_SEASON_START = (11, 1)
 REGULAR_SEASON_END = (4, 1)
 POST_SEASON_START = (3, 1)
@@ -24,11 +27,20 @@ SEASON_END = (4, 30)
 
 
 class NcaabbGender(Enum):
+    """
+    Names of NCAABB basketball genders.
+    Value will match the string ESPN's API expects
+    """
+
     womens = "womens"
     mens = "mens"
 
 
 class NcaabbGroup(Enum):
+    """
+    Group in NCAABB is division AND tournament if postseason
+    """
+
     d1 = 50
     # Basketball counts postseason as a different "group"
     ncaa = 100
@@ -48,26 +60,34 @@ POSTSEASON_GROUPS = frozenset(
 
 
 class DayParams(NamedTuple):
+    """
+    Query parameters for grabbing a day of
+    NCAABB games from the ESPN API
+    """
+
     date: date
     gender: NcaabbGender
     group: NcaabbGroup
 
 
 async def update(gender: NcaabbGender, location=None):
+    """
+    Update a NCAABB .csv
+    """
     if location is None:
         location = f"ncaa{gender.name[0]}bb.csv"
     end_year = get_end_year(SEASON_END)
     args = [[y, gender] for y in range(2001, end_year + 1)]
-    seasons = [s async for s in apply_in_parallel(get_ncaabb_season, args)]
+    seasons = [s async for s in apply_in_parallel(_get_ncaabb_season, args)]
     save_seasons(seasons, location)
 
 
-async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
-    logger.info(f"Getting NCAABB {gender.name} season {year}")
+async def _get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
+    logger.info("Getting NCAABB %s season %d", gender.name, year)
     cache = SeasonCache(f"ncaa{gender.name[0]}bb")
-    s = cache.check_cache(year)
-    if s:
-        return s
+    season = cache.check_cache(year)
+    if season:
+        return season
 
     day_params: List[DayParams] = []
     start = date(year, *REGULAR_SEASON_START)
@@ -88,10 +108,12 @@ async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
     trouble_days = []
     for day_param in day_params:
         try:
-            games += await get_ncaabb_games(*day_param)
+            games += await _get_ncaabb_games(*day_param)
         except aiohttp.client_exceptions.ClientResponseError:
             day, gender, group = day_param
-            logger.warning(f"Marking {day} for {gender.name} {group.name} as trouble")
+            logger.warning(
+                "Marking %s for %s %s as trouble", day, gender.name, group.name
+            )
             trouble_days.append(day_param)
 
     # Group into weeks.
@@ -105,7 +127,7 @@ async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
     season = Season(weeks, year, trouble_days)
 
     if datetime.utcnow() > datetime(year + 1, *SEASON_END):
-        cache.save_to_cache(year, season)
+        cache.save_to_cache(season)
 
     return season
 
@@ -123,10 +145,10 @@ def _date_range(start: date, end: date) -> List[date]:
     return [start + timedelta(days=offset) for offset in range(days)]
 
 
-async def get_ncaabb_games(
+async def _get_ncaabb_games(
     game_date: date, gender: NcaabbGender, group: NcaabbGroup
 ) -> List[Game]:
-    logger.info(f"Getting NCAABB {gender.value} {game_date} {group.name}")
+    logger.info("Getting NCAABB %s %s %s", gender.value, game_date, group.name)
     parameters: RequestParameters = dict(
         lang="en",
         region="us",

@@ -2,13 +2,17 @@ import asyncio
 from typing import Any, Awaitable, TypeVar, Callable, Iterable, AsyncIterator
 
 
-# TODO: figure out the magic to make the args for f typed
+# It'd be neat to also be able to match types between the callable
+# and the args passed in here...someday...
 ReturnType = TypeVar("ReturnType")
 
 
 async def apply_in_parallel(
-    f: Callable[..., Awaitable[ReturnType]], args: Iterable[Any]
+    function: Callable[..., Awaitable[ReturnType]], args: Iterable[Any]
 ) -> AsyncIterator[ReturnType]:
-    tasks = [asyncio.create_task(f(*arg_set)) for arg_set in args]
-    for t in tasks:
-        yield await t
+    """
+    Run a list of tasks in parallel
+    """
+    tasks = [asyncio.create_task(function(*arg_set)) for arg_set in args]
+    for task in tasks:
+        yield await task

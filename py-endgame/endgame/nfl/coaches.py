@@ -20,6 +20,9 @@ class CoachRow:
     coach: str
 
     def to_dict(self) -> Dict[str, Union[str, int]]:
+        """
+        Serialize as a savable set of key-value pairs
+        """
         return {
             "year": self.year,
             "team": self.team.name,
@@ -73,7 +76,7 @@ async def get_coaches(year: int) -> AsyncIterable[Tuple[str, NflTeam]]:
     for data_row in data_rows:
         cell_values = [i.text for i in data_row.children]
         assert len(column_names) == len(cell_values)
-        d = dict(zip(column_names, cell_values))
-        team = PRO_FOOTBALL_REFERENCE_SHORT_NAMES[d["Tm"]]
-        yield d["Coach"], team
+        row_dict = dict(zip(column_names, cell_values))
+        team = PRO_FOOTBALL_REFERENCE_SHORT_NAMES[row_dict["Tm"]]
+        yield row_dict["Coach"], team
     await content.save_if_necessary()

@@ -1,8 +1,8 @@
-import aiohttp
 from datetime import datetime
 from itertools import groupby
 from logging import getLogger
 from typing import List, Iterator
+import aiohttp
 
 from .async_tools import apply_in_parallel
 from .date import get_end_year
@@ -23,20 +23,25 @@ SEASON_END = (2, 1)
 
 
 async def update(location="ncaaf.csv"):
-    # TODO: share this "end year" logic?
+    """
+    Update the NCAAFB data
+    """
     end_year = get_end_year(SEASON_END)
     args = [[y] for y in range(1999, end_year + 1)]
     seasons = [s async for s in apply_in_parallel(get_season, args)]
     save_seasons(seasons, location)
 
 
-async def get_season(year: int):
-    logger.info(f"Getting NCAA season {year}")
+async def get_season(year: int) -> Season:
+    """
+    Get the games from a season of NCAAFB
+    """
+    logger.info("Getting NCAA season %s", year)
     cache = SeasonCache("ncaafb")
-    s = cache.check_cache(year)
+    season = cache.check_cache(year)
     # TODO: add an option to ignore the cache if it has any skipped weeks?
-    if s:
-        return s
+    if season:
+        return season
 
     week_params: List[WeekParams] = []
     for group in NcaaFbGroup:
@@ -53,9 +58,11 @@ async def get_season(year: int):
         # Should I raise custom exception instead?
         except aiohttp.client_exceptions.ClientResponseError:
             year, week_num, season_type, group = week_param
-            logger.warning(
-                f"Marking week as trouble: {year=} {week_num=} type={season_type.name} group={group.name}"
+            msg = (
+                f"Marking week as trouble: "
+                f"{year=} {week_num=} type={season_type.name} group={group.name}"
             )
+            logger.warning(msg)
             trouble_weeks.append(week_param)
 
     weeks = list(_remove_cross_division_duplicates(weeks))
@@ -64,7 +71,7 @@ async def get_season(year: int):
     # Cache if the season is over
     season_end_date = datetime(year + 1, *SEASON_END)
     if datetime.utcnow() > season_end_date:
-        cache.save_to_cache(year, season)
+        cache.save_to_cache(season)
 
     return season
 
@@ -84,9 +91,8 @@ def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:
 async def _get_week(
     year: int, week: int, season_type: SeasonType, group: NcaaFbGroup
 ) -> Week:
-    logger.info(
-        f"Getting NCAAFB {year} {season_type.name} week {week} for {group.name}"
-    )
+    msg = f"Getting NCAAFB {year} {season_type.name} week {week} for {group.name}"
+    logger.info(msg)
     parameters: RequestParameters = dict(
         lang="en",
         region="us",
@@ -106,10 +112,10 @@ async def _get_week(
 
 
 def _rename_teams(game: Game) -> Game:
-    d = game.to_dict()
-    d["away"] = _rename_team(d["away"])
-    d["home"] = _rename_team(d["home"])
-    return Game(**d)
+    game_dict = game.to_dict()
+    game_dict["away"] = _rename_team(game_dict["away"])
+    game_dict["home"] = _rename_team(game_dict["home"])
+    return Game(**game_dict)
 
 
 def _rename_team(name: str) -> str:
