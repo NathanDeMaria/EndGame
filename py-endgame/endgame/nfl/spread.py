@@ -155,7 +155,7 @@ def _parse_row(table_row: Tag) -> Optional[Tuple[NflTeam, NflTeam, float]]:
         # like 2017 week 10
         return None
     # Sometimes there's also an over-under at the end here?
-    _, team1, spread, team2, *_ = tds
+    _, favorite, spread, underdog, *_ = tds
     if spread == "PPD":
         # 2014 week 12 had a postponed game
         return None
@@ -163,15 +163,15 @@ def _parse_row(table_row: Tag) -> Optional[Tuple[NflTeam, NflTeam, float]]:
         spread = 0.0
     else:
         spread = float(spread)
-    team1 = tidy_name(team1)
-    team2 = tidy_name(team2)
-    if "At " in team1:
-        home = team1.replace("At ", "", 1)
-        away = team2
-        spread = -spread
+    favorite = tidy_name(favorite)
+    underdog = tidy_name(underdog)
+    if "At " in favorite:
+        home = favorite.replace("At ", "", 1)
+        away = underdog
     else:
-        home = team2.replace("At ", "", 1)
-        away = team1
+        home = underdog.replace("At ", "", 1)
+        away = favorite
+        spread = -spread
     return CITIES[home], CITIES[away], spread
 
 
