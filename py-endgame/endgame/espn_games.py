@@ -90,6 +90,7 @@ def parse_game(event: Dict) -> Game:
         neutral_site=neutral_site,
         completed=completed,
         date=parser.parse(event["date"]),
+        game_id=event["id"],
     )
 
 

@@ -15,6 +15,7 @@ class Game(NamedTuple):
     neutral_site: bool
     completed: bool
     date: datetime
+    game_id: str
 
     @property
     def column_names(self) -> List[str]:
