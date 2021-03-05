@@ -70,7 +70,10 @@ async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
     for i in range(max_retries):
         try:
             return await _get_web(url, parameters)
-        except aiohttp.client_exceptions.ClientResponseError as error:
+        except (
+            aiohttp.client_exceptions.ClientResponseError,
+            aiohttp.client_exceptions.ClientConnectorError,
+        ) as error:
             if i + 1 == max_retries:
                 raise error
             # Exponential backoff w/ +/- 10% jitter
@@ -78,14 +81,25 @@ async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
             param_string = _build_param_string(parameters)
             full_url = f"{url}?{param_string}" if param_string else url
             logger.warning(
-                "Struggling to get %s Status code %s. Attempt number %d. Sleeping for %.02f",
+                "Struggling to get %s. Error: %s. Attempt number %d. Sleeping for %.02f",
                 full_url,
-                error.status,
+                _get_error_message(error),
                 i + 1,
                 sleep_duration_s,
             )
             await asyncio.sleep(sleep_duration_s)
     raise Exception("Should never reach here, this is just for mypy")
+
+
+def _get_error_message(
+    error: Union[
+        aiohttp.client_exceptions.ClientResponseError,
+        aiohttp.client_exceptions.ClientConnectorError,
+    ]
+) -> str:
+    if isinstance(error, aiohttp.client_exceptions.ClientResponseError):
+        return f"Status code: {error.status}"
+    return str(error)
 
 
 async def _get_web(url: str, parameters: RequestParameters) -> bytes:

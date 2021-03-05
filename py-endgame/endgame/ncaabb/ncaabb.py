@@ -5,13 +5,15 @@ from logging import getLogger
 from typing import List, NamedTuple
 import aiohttp
 
-from .async_tools import apply_in_parallel
-from .constants import ESPN_SPORTS_API_BASE
-from .date import get_end_year
-from .types import Game, Season, Week
-from .espn_games import get_games, save_seasons
-from .season_cache import SeasonCache
-from .web import RequestParameters
+from ..async_tools import apply_in_parallel
+from ..constants import ESPN_SPORTS_API_BASE
+from ..date import get_end_year
+from ..types import Game, Season, Week
+from ..espn_games import get_games, save_seasons
+from ..season_cache import SeasonCache
+from ..web import RequestParameters
+
+from .gender import NcaabbGender
 
 
 logger = getLogger(__name__)
@@ -24,16 +26,6 @@ REGULAR_SEASON_START = (11, 1)
 REGULAR_SEASON_END = (4, 1)
 POST_SEASON_START = (3, 1)
 SEASON_END = (4, 30)
-
-
-class NcaabbGender(Enum):
-    """
-    Names of NCAABB basketball genders.
-    Value will match the string ESPN's API expects
-    """
-
-    womens = "womens"
-    mens = "mens"
 
 
 class NcaabbGroup(Enum):
@@ -76,10 +68,18 @@ async def update(gender: NcaabbGender, location=None):
     """
     if location is None:
         location = f"ncaa{gender.name[0]}bb.csv"
+
+    seasons = await get_seasons(gender)
+    save_seasons(seasons, location)
+
+
+async def get_seasons(gender: NcaabbGender) -> List[Season]:
+    """
+    Get all seasons for a NCAABB
+    """
     end_year = get_end_year(SEASON_END)
     args = [[y, gender] for y in range(2001, end_year + 1)]
-    seasons = [s async for s in apply_in_parallel(_get_ncaabb_season, args)]
-    save_seasons(seasons, location)
+    return [s async for s in apply_in_parallel(_get_ncaabb_season, args)]
 
 
 async def _get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
