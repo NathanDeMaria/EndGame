@@ -73,6 +73,8 @@ async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
         except (
             aiohttp.client_exceptions.ClientResponseError,
             aiohttp.client_exceptions.ClientConnectorError,
+            aiohttp.client_exceptions.ClientPayloadError,
+            aiohttp.client_exceptions.ServerDisconnectedError,
         ) as error:
             if i + 1 == max_retries:
                 raise error
@@ -95,6 +97,8 @@ def _get_error_message(
     error: Union[
         aiohttp.client_exceptions.ClientResponseError,
         aiohttp.client_exceptions.ClientConnectorError,
+        aiohttp.client_exceptions.ClientPayloadError,
+        aiohttp.client_exceptions.ServerDisconnectedError,
     ]
 ) -> str:
     if isinstance(error, aiohttp.client_exceptions.ClientResponseError):
