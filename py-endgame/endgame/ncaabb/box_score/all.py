@@ -180,8 +180,8 @@ def _parse_player(
 ) -> RawPlayer:
     player_link = player.select_one("td.name a")
     if player_link:
-        player_link.attrs.get("href")
-        *_, player_id, short_name = player_link.split("/")
+        href = player_link.attrs.get("href")
+        *_, player_id, short_name = href.split("/")
     else:
         # If there's no ID, use the team+player name to make an ID
         # Transfers will be counted as new players, but I can't do better right now
