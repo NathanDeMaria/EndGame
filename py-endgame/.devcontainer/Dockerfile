@@ -8,6 +8,11 @@ ENV POETRY_VERSION 1.1.13
 RUN curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/${POETRY_VERSION}/get-poetry.py | python
 ENV PATH /root/.poetry/bin:${PATH}
 
-COPY pyproject.toml ./
+# Is this a good way to add stuff on load?
+# Not sure, but it's working
+COPY profile.sh /root/profile.sh
+RUN echo ". profile.sh" >> "/root/.bashrc"
+
 COPY poetry.* ./
+COPY pyproject.toml ./
 RUN poetry install
