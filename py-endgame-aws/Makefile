@@ -13,5 +13,5 @@ build:
 _ecr_login:
 	aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com
 
-push: build
+push: build _ecr_login
 	docker push ${IMAGE}

@@ -16,3 +16,13 @@ RUN echo ". profile.sh" >> "/root/.bashrc"
 COPY poetry.* ./
 COPY pyproject.toml ./
 RUN poetry install
+
+# TODO: https://github.com/python-poetry/poetry/issues/755
+RUN pip install git+https://github.com/NathanDeMaria/EndGame.git@275d2f63cfe79957faef647206187d784c448679#subdirectory=py-endgame
+RUN endgame -- --completion bash > ~/.endgame-completion.sh && echo ". ~/.endgame-completion.sh" > "/root/.bashrc"
+
+# Copying everything outside of the workdir, for use as a deployed Docker image
+ADD . /root/runtime
+
+ENTRYPOINT ["python", "/root/runtime/main.py"]
+CMD ["--", "--help"]
