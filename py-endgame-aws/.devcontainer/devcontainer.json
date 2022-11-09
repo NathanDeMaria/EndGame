@@ -28,12 +28,14 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.nosetestsEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "autoDocstring.docstringFormat": "numpy-notypes"
   },
   "extensions": [
     "ms-python.python",
     "ms-python.vscode-pylance",
-    "sourcery.sourcery"
+    "sourcery.sourcery",
+    "njpwerner.autodocstring"
   ],
   "mounts": [
     "source=endgame-aws-bashhistory,target=/commandhistory,type=volume",
