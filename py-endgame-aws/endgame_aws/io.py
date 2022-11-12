@@ -1,13 +1,19 @@
 import pickle
 from csv import DictWriter, DictReader
 from io import StringIO
+from typing import AsyncIterator, Type, TypeVar
 from aiobotocore.session import get_session
 from dataclasses_json import DataClassJsonMixin
 from endgame.ncaabb.ncaabb import Season
+from endgame.ncaabb.box_score import BoxScore
 from endgame.ncaabb.possession_side import PossessionSide
 
 
 class _SerializablePossession(PossessionSide, DataClassJsonMixin):
+    pass
+
+
+class _SerializableBoxScore(BoxScore, DataClassJsonMixin):
     pass
 
 
@@ -43,6 +49,22 @@ async def read_seasons(bucket: str, key: str) -> list[Season]:
 
 
 async def read_possessions(bucket: str, key: str) -> list[PossessionSide]:
+    return [
+        possession
+        async for possession in _read_csv(bucket, key, _SerializablePossession)
+    ]
+
+
+async def read_box_scores(bucket: str, key: str) -> list[BoxScore]:
+    return [box async for box in _read_csv(bucket, key, _SerializableBoxScore)]
+
+
+_DataclassJsonType = TypeVar("_DataclassJsonType", bound=DataClassJsonMixin)
+
+
+async def _read_csv(
+    bucket: str, key: str, data_class: Type[_DataclassJsonType]
+) -> AsyncIterator[_DataclassJsonType]:
     session = get_session()
     async with session.create_client("s3") as client:
         response = await client.get_object(Bucket=bucket, Key=key)
@@ -50,4 +72,5 @@ async def read_possessions(bucket: str, key: str) -> list[PossessionSide]:
             raw = await stream.read()
     with StringIO(raw.decode()) as read_stream:
         reader = DictReader(read_stream)
-        return [_SerializablePossession.schema().load(row) for row in reader]
+        for item in reader:
+            yield data_class.schema().load(item)
