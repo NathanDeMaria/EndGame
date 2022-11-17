@@ -1,11 +1,12 @@
 import pickle
 from csv import DictWriter, DictReader
+from dataclasses import dataclass
 from io import StringIO
 from typing import AsyncIterator, Type, TypeVar
 from aiobotocore.session import get_session
 from dataclasses_json import DataClassJsonMixin
 from endgame.ncaabb.ncaabb import Season
-from endgame.ncaabb.box_score import BoxScore
+from endgame.ncaabb.box_score import PlayerBoxScore
 from endgame.ncaabb.possession_side import PossessionSide
 
 
@@ -13,8 +14,10 @@ class _SerializablePossession(PossessionSide, DataClassJsonMixin):
     pass
 
 
-class _SerializableBoxScore(BoxScore, DataClassJsonMixin):
-    pass
+@dataclass
+class FlattenedBoxScore(PlayerBoxScore, DataClassJsonMixin):
+    game_id: str
+    team_id: str
 
 
 async def save_to_s3(seasons: list[Season], bucket: str, key: str):
@@ -55,8 +58,8 @@ async def read_possessions(bucket: str, key: str) -> list[PossessionSide]:
     ]
 
 
-async def read_box_scores(bucket: str, key: str) -> list[BoxScore]:
-    return [box async for box in _read_csv(bucket, key, _SerializableBoxScore)]
+async def read_box_scores(bucket: str, key: str) -> list[FlattenedBoxScore]:
+    return [box async for box in _read_csv(bucket, key, FlattenedBoxScore)]
 
 
 _DataclassJsonType = TypeVar("_DataclassJsonType", bound=DataClassJsonMixin)

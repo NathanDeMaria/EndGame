@@ -5,4 +5,5 @@ from .io import (
     read_possessions,
     read_seasons,
     read_box_scores,
+    FlattenedBoxScore,
 )
