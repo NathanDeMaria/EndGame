@@ -76,4 +76,5 @@ async def _read_csv(
     with StringIO(raw.decode()) as read_stream:
         reader = DictReader(read_stream)
         for item in reader:
-            yield data_class.schema().load(item)
+            cleaned = {k: None if v == '' else v for k, v in item.items()}
+            yield data_class.schema().load(cleaned)
