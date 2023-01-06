@@ -60,7 +60,7 @@ async def get_possessions(
 
     try:
         soup = BeautifulSoup(content.data, features="html.parser")
-        matchup_table = soup.select_one("div#gamepackage-matchup table.mod-data")
+        matchup_table = soup.select_one("div.PageLayout__Main table.Table")
         if matchup_table is None:
             # Seems like some old games don't have this
             await content.save_if_necessary()

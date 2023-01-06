@@ -79,10 +79,10 @@ async def get_seasons(gender: NcaabbGender) -> List[Season]:
     """
     end_year = get_end_year(SEASON_END)
     args = [[y, gender] for y in range(2001, end_year + 1)]
-    return [s async for s in apply_in_parallel(_get_ncaabb_season, args)]
+    return [s async for s in apply_in_parallel(get_ncaabb_season, args)]
 
 
-async def _get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
+async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
     logger.info("Getting NCAABB %s season %d", gender.name, year)
     cache = SeasonCache(f"ncaa{gender.name[0]}bb")
     season = cache.check_cache(year)
