@@ -118,14 +118,16 @@ async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore
         return None
     soup = BeautifulSoup(content.data, features="html.parser")
 
-    away_table = soup.select_one("div.gamepackage-away-wrap")
-    home_table = soup.select_one("div.gamepackage-home-wrap")
+    tables = soup.select("div.Boxscore.ResponsiveTable")
+    if len(tables) != 2:
+        return None
+    away_table, home_table = tables
 
     if away_table is None or home_table is None:
         return None
 
-    away_header = soup.select_one("div.away div.team-container a.team-name")
-    home_header = soup.select_one("div.home div.team-container a.team-name")
+    away_header = soup.select_one("div.Gamestrip__Team--away a")
+    home_header = soup.select_one("div.Gamestrip__Team--home a")
 
     if away_header is None or home_header is None:
         return None
@@ -133,14 +135,14 @@ async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore
     try:
         away_id = _get_team_id(away_header)
         home_id = _get_team_id(home_header)
-        raw_away = list(_read_table(away_table, away_id))
-        if not raw_away:
+        if raw_away := list(_read_table(away_table, away_id)):
+            away_box_score = _parse_team_box_score(raw_away, False, away_id)
+        else:
             return None
-        away_box_score = _parse_team_box_score(raw_away, False, away_id)
-        raw_home = list(_read_table(home_table, home_id))
-        if not raw_home:
+        if raw_home := list(_read_table(home_table, home_id)):
+            home_box_score = _parse_team_box_score(raw_home, True, home_id)
+        else:
             return None
-        home_box_score = _parse_team_box_score(raw_home, True, home_id)
     except Exception as err:
         logger.warning("Struggling with %s", url)
         raise err
@@ -158,34 +160,35 @@ def _get_team_id(team_name_tag: Tag) -> str:
 
 
 def _read_table(box_score_table: Tag, team_id: str) -> Iterator[RawPlayer]:
-    header, *players = box_score_table.find_all("tr", attrs={"class": None})
-    columns = [th.text for th in header.find_all("th")]
-    if players[0].text.strip() == "No":
+    names_table, stats_table = box_score_table.select("table")
+    columns = [
+        col.text
+        for col in stats_table.select_one("tr:has(td.Table__customHeader)").select("td")
+    ]
+    player_names = names_table.select("td:not(.Table__customHeader)")
+    if player_names[0].text.strip() == "No":
         return
-    for player in players:
-        stat_values = [td.text for td in player.find_all("td")]
+    player_stats = stats_table.select("tr:has(td:not(.Table__customHeader))")
+    assert len(player_names) == len(player_stats)
+    for player_name, player_stat in zip(player_names, player_stats):
+        stat_values = [td.text for td in player_stat.find_all("td")]
         if _is_did_not_play_row(stat_values):
-            continue
-        if not stat_values:
-            # This is probably the header row for the bench sub-table
-            _assert_bench_row(player)
             continue
         if stat_values[0] == "TEAM":
             continue
-        yield _parse_player(player, columns, stat_values, team_id)
+        yield _parse_player(player_name, columns, stat_values, team_id)
 
 
 def _parse_player(
     player: Tag, columns: List[str], stat_values: List[str], team_id: str
 ) -> RawPlayer:
-    player_link = player.select_one("td.name a")
-    if player_link:
+    if player_link := player.select_one("td a"):
         href = player_link.attrs.get("href")
         *_, player_id, short_name = href.split("/")
     else:
         # If there's no ID, use the team+player name to make an ID
         # Transfers will be counted as new players, but I can't do better right now
-        short_name = player.select_one("td.name span").text
+        short_name = player.text
         player_id = f"{team_id}-{short_name}"
     assert len(columns) == len(stat_values), "Trouble parsing box score stats table"
     stats = dict(zip(columns, stat_values))
@@ -195,11 +198,6 @@ def _parse_player(
 def _is_did_not_play_row(stat_values: List[str]) -> bool:
     # Some player rows are just "Did not play" with a bunch of blank cells
     return len(stat_values) == 2 and stat_values[1].strip() == "Did not play"
-
-
-def _assert_bench_row(player: Tag):
-    row_header = player.select_one("th.name").text
-    assert row_header == "Bench", "Trouble parsing box score stats table"
 
 
 def _parse_team_box_score(
