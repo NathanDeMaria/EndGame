@@ -8,7 +8,7 @@ authors = []
 python = "^3.11"
 fire = "^0.4.0"
 aiobotocore = "^2.4.0"
-endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "275d2f63cfe79957faef647206187d784c448679", subdirectory = "py-endgame"}
+endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "522799d44aec0d5ea47333b59ce8c2e61b584a23", subdirectory = "py-endgame"}
 dataclasses-json = "^0.5.7"
 
 [tool.poetry.group.dev.dependencies]
