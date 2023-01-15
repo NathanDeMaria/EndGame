@@ -166,6 +166,10 @@ def _read_table(box_score_table: Tag, team_id: str) -> Iterator[RawPlayer]:
         for col in stats_table.select_one("tr:has(td.Table__customHeader)").select("td")
     ]
     player_names = names_table.select("td:not(.Table__customHeader)")
+    if not player_names:
+        # Blank for a forfeit, like
+        # https://www.espn.com/womens-college-basketball/boxscore/_/gameId/401498641
+        return
     if player_names[0].text.strip() == "No":
         return
     player_stats = stats_table.select("tr:has(td:not(.Table__customHeader))")
