@@ -1,3 +1,4 @@
+import aiohttp
 from csv import DictWriter
 from logging import getLogger
 from typing import Dict, List, Optional, Tuple
@@ -56,7 +57,12 @@ async def get_possessions(
     (combined between the two teams)
     """
     url = URL_FORMAT.format(gender=gender.name, game_id=game_id)
-    content = await get(url)
+    try:
+        content = await get(url)
+    except aiohttp.client_exceptions.ClientResponseError as error:
+        if error.code == 404:
+            return None
+        raise error
 
     try:
         soup = BeautifulSoup(content.data, features="html.parser")
