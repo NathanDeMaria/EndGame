@@ -6,16 +6,16 @@ authors = []
 
 [tool.poetry.dependencies]
 python = "^3.11"
-fire = "^0.4.0"
+fire = ">=0.4.0,<1.0"
 aiobotocore = "^2.4.0"
-endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "522799d44aec0d5ea47333b59ce8c2e61b584a23", subdirectory = "py-endgame"}
-dataclasses-json = "^0.5.7"
+endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "12cb1585df48a7a6d39bea220d4e62029601df15", subdirectory = "py-endgame"}
+dataclasses-json = ">=0.5.7,<1.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^22.10.0"
 pytest = "^7.2.0"
 pylint = "^2.15.5"
-mypy = "^0.982"
+mypy = "^1.8.0"
 types-aiobotocore = {extras = ["essential"], version = "^2.4.0"}
 
 [build-system]
