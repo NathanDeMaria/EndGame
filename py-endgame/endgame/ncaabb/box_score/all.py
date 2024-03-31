@@ -34,6 +34,12 @@ class TeamBoxScore(DataClassJsonMixin):
 
 
 @dataclass
+class Betting(DataClassJsonMixin):
+    home_spread: float
+    over_under: float
+
+
+@dataclass
 class BoxScore(DataClassJsonMixin):
     """
     Box score of a game
@@ -42,6 +48,7 @@ class BoxScore(DataClassJsonMixin):
     game_id: str
     home: TeamBoxScore
     away: TeamBoxScore
+    betting: Optional[Betting]
 
 
 @dataclass
@@ -147,10 +154,43 @@ async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore
         logger.warning("Struggling with %s", url)
         raise err
 
+    betting = _parse_betting(soup)
     await content.save_if_necessary()
 
-    return BoxScore(game_id=game_id, home=home_box_score, away=away_box_score)
+    return BoxScore(game_id=game_id, home=home_box_score, away=away_box_score, betting=betting)
 
+
+def _parse_betting(soup: BeautifulSoup) -> Optional[Betting]:
+    betting_item = soup.select("div.GameInfo__BettingItem")
+    if not betting_item:
+        return None
+    betting_info = dict(d.text.split(":") for d in betting_item)
+    line = betting_info["Line"].strip()
+    over_under = float(betting_info["Over/Under"])
+
+    favorite_short_name, raw_spread = line.split(" ")
+    spread = float(raw_spread)
+    away_short, home_short = _parse_short_names(soup.select_one("div.Gamestrip__Overview"))
+    if favorite_short_name == away_short:
+        home_spread = -spread
+    elif favorite_short_name == home_short:
+        home_spread = spread
+    else:
+        raise _SpreadMatchingError(home_short, away_short, favorite_short_name)
+    return Betting(
+        home_spread=home_spread,
+        over_under=over_under,
+    )
+
+
+class _SpreadMatchingError(Exception):
+    def __init__(self, home: str, away: str, match: str) -> None:
+        super.__init__(f"Failed to assign spead {home=} {away=} {match=}")
+
+
+def _parse_short_names(overview: Tag) -> tuple[str, str]:
+    _, away_row, home_row = overview.select("tr")
+    return away_row.select_one("td").text, home_row.select_one("td").text
 
 def _get_team_id(team_name_tag: Tag) -> str:
     team_link = team_name_tag.attrs.get("href")
