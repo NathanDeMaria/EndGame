@@ -19,7 +19,7 @@ URL_FORMAT = "https://www.espn.com/{gender}-college-basketball/matchup?gameId={g
 StatsTable = Dict[str, Tuple[str, str]]
 
 
-async def save_possessions(gender: NcaabbGender, location: str = None):
+async def save_possessions(gender: NcaabbGender, location: Optional[str] = None):
     """
     Save a .csv with possession counts/results,
     to be joined with the NCAABB games .csv

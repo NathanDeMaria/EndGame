@@ -103,6 +103,7 @@ def _to_games(td_tag: Tag, header_text: str) -> Iterable[Game]:
     season = int(season_str.strip().split("-")[0])
 
     main_table = td_tag.select_one("p > span > table")
+    assert main_table is not None
     for home, away, spread in _parse_table(main_table):
         yield Game(
             home=home,

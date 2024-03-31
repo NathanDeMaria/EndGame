@@ -65,7 +65,7 @@ class BoxScoreSeason(DataClassJsonMixin):
 BOX_SCORE_CACHE = DiskCache(BoxScoreSeason, ["season", "gender"])
 
 
-async def save_box_scores(gender: NcaabbGender, location: str = None):
+async def save_box_scores(gender: NcaabbGender, location: Optional[str] = None):
     """
     Save the box scores for all games that we have.
 
@@ -170,7 +170,10 @@ def _parse_betting(soup: BeautifulSoup) -> Optional[Betting]:
 
     favorite_short_name, raw_spread = line.split(" ")
     spread = float(raw_spread)
-    away_short, home_short = _parse_short_names(soup.select_one("div.Gamestrip__Overview"))
+    overview = soup.select_one("div.Gamestrip__Overview")
+    if overview is None:
+        raise _ParseError
+    away_short, home_short = _parse_short_names(overview)
     if favorite_short_name == away_short:
         home_spread = -spread
     elif favorite_short_name == home_short:
@@ -185,15 +188,22 @@ def _parse_betting(soup: BeautifulSoup) -> Optional[Betting]:
 
 class _SpreadMatchingError(Exception):
     def __init__(self, home: str, away: str, match: str) -> None:
-        super.__init__(f"Failed to assign spead {home=} {away=} {match=}")
+        super().__init__(f"Failed to assign spead {home=} {away=} {match=}")
 
 
 def _parse_short_names(overview: Tag) -> tuple[str, str]:
     _, away_row, home_row = overview.select("tr")
-    return away_row.select_one("td").text, home_row.select_one("td").text
+    return _get_td_text(away_row), _get_td_text(home_row)
+
+
+def _get_td_text(tag: Tag) -> str:
+    td = tag.select_one("td")
+    if td is None:
+        raise _ParseError
+    return td.text
 
 def _get_team_id(team_name_tag: Tag) -> str:
-    team_link = team_name_tag.attrs.get("href")
+    team_link = team_name_tag.attrs["href"]
     # This link hopefully always looks like:
     # /womens-college-basketball/team/_/id/12/arizona-wildcats
     return team_link.split("/")[-2]
@@ -201,9 +211,12 @@ def _get_team_id(team_name_tag: Tag) -> str:
 
 def _read_table(box_score_table: Tag, team_id: str) -> Iterator[RawPlayer]:
     names_table, stats_table = box_score_table.select("table")
+    header = stats_table.select_one("tr:has(td.Table__customHeader)")
+    if header is None:
+        raise _ParseError
     columns = [
         col.text
-        for col in stats_table.select_one("tr:has(td.Table__customHeader)").select("td")
+        for col in header.select("td")
     ]
     player_names = names_table.select("td:not(.Table__customHeader)")
     if not player_names:
@@ -227,7 +240,7 @@ def _parse_player(
     player: Tag, columns: List[str], stat_values: List[str], team_id: str
 ) -> RawPlayer:
     if player_link := player.select_one("td a"):
-        href = player_link.attrs.get("href")
+        href = player_link.attrs["href"]
         *_, player_id, short_name = href.split("/")
     else:
         # If there's no ID, use the team+player name to make an ID
@@ -250,3 +263,7 @@ def _parse_team_box_score(
     return TeamBoxScore(
         players=[parse_player(p) for p in players], is_home=is_home, team_id=team_id
     )
+
+
+class _ParseError(Exception):
+    pass

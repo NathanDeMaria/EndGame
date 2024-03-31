@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Optional, TypeVar, Type
+from typing import Generic, List, Optional, TypeVar, Type
 import aiofiles
 from dataclasses_json import DataClassJsonMixin
 
@@ -9,7 +9,7 @@ from .config import CONFIG
 T = TypeVar("T", bound=DataClassJsonMixin)
 
 
-class DiskCache:
+class DiskCache(Generic[T]):
     """
     An object that can be cached.
     """

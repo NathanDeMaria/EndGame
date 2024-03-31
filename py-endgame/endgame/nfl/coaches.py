@@ -69,7 +69,7 @@ async def get_coaches(year: int) -> AsyncIterable[Tuple[str, NflTeam]]:
     """
     content = await get(URL_FORMAT.format(year=year))
     soup = BeautifulSoup(content.data, features="html.parser")
-    rows = soup.find(id="coaches").find_all("tr")
+    rows = soup.find(id="coaches").find_all("tr")  # type: ignore[union-attr]
     _, column_headers, *data_rows = rows
     column_names = [h.text for h in column_headers.find_all("th")]
 
