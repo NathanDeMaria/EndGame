@@ -3,7 +3,7 @@ Parsing games from the ESPN API
 """
 import json
 from csv import DictWriter
-from typing import Dict, NamedTuple, List
+from typing import Dict, NamedTuple, List, Optional
 from dateutil import parser
 
 from .types import Game, Season
@@ -46,7 +46,8 @@ async def get_games(url: str, parameters: RequestParameters) -> List[Game]:
     content = await get(url, parameters)
     tree = json.loads(content.data)
 
-    games: List[Game] = [parse_game(e) for e in tree["events"]]
+    attempted_games: List[Optional[Game]] = [parse_game(e) for e in tree["events"]]
+    games = (g for g in attempted_games if g is not None)
 
     # Don't cache games if there are none here.
     # I ran into an issue with this when getting a postseason week
@@ -57,10 +58,17 @@ async def get_games(url: str, parameters: RequestParameters) -> List[Game]:
     return [g for g in games if g.completed]
 
 
-def parse_game(event: Dict) -> Game:
+def parse_game(event: Dict) -> Optional[Game]:
     """
     Parse data for a game out of the ESPN JSON response
     """
+    if not event:
+        return None
+    # I'm not sure what causes this, but some games are empty
+    # Ex: Butler vs. Providence on
+    # https://www.espn.com/mens-college-basketball/scoreboard/_/date/20140121/seasontype/2/group/50
+    # The game happened, but there's no play-by-play?
+    # We're not using it here, just seems sus
     assert len(event["competitions"]) == 1
     competition = event["competitions"][0]
     competitiors = [_parse_competitor(c) for c in competition["competitors"]]
