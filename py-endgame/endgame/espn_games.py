@@ -47,7 +47,7 @@ async def get_games(url: str, parameters: RequestParameters) -> List[Game]:
     tree = json.loads(content.data)
 
     attempted_games: List[Optional[Game]] = [parse_game(e) for e in tree["events"]]
-    games = (g for g in attempted_games if g is not None)
+    games = [g for g in attempted_games if g is not None]
 
     # Don't cache games if there are none here.
     # I ran into an issue with this when getting a postseason week
