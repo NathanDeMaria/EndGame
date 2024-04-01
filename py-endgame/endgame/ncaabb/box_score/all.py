@@ -150,11 +150,11 @@ async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore
             home_box_score = _parse_team_box_score(raw_home, True, home_id)
         else:
             return None
+        betting = _parse_betting(soup)
     except Exception as err:
         logger.warning("Struggling with %s", url)
         raise err
 
-    betting = _parse_betting(soup)
     await content.save_if_necessary()
 
     return BoxScore(game_id=game_id, home=home_box_score, away=away_box_score, betting=betting)
