@@ -35,8 +35,8 @@ class TeamBoxScore(DataClassJsonMixin):
 
 @dataclass
 class Betting(DataClassJsonMixin):
-    home_spread: float
-    over_under: float
+    home_spread: Optional[float]
+    over_under: Optional[float]
 
 
 @dataclass
@@ -165,9 +165,19 @@ def _parse_betting(soup: BeautifulSoup) -> Optional[Betting]:
     if not betting_item:
         return None
     betting_info = dict(d.text.split(":") for d in betting_item)
-    line = betting_info["Line"].strip()
-    over_under = float(betting_info["Over/Under"])
+    over_under = _parse_over_under(betting_info)
+    home_spread = _parse_spread(betting_info, soup)
 
+    return Betting(
+        home_spread=home_spread,
+        over_under=over_under,
+    )
+
+
+def _parse_spread(betting_info: dict, soup: BeautifulSoup) -> Optional[float]:
+    if "Line" not in betting_info:
+        return None
+    line = betting_info["Line"].strip()
     favorite_short_name, raw_spread = line.split(" ")
     spread = float(raw_spread)
     overview = soup.select_one("div.Gamestrip__Overview")
@@ -175,15 +185,16 @@ def _parse_betting(soup: BeautifulSoup) -> Optional[Betting]:
         raise _ParseError
     away_short, home_short = _parse_short_names(overview)
     if favorite_short_name == away_short:
-        home_spread = -spread
+        return -spread
     elif favorite_short_name == home_short:
-        home_spread = spread
-    else:
-        raise _SpreadMatchingError(home_short, away_short, favorite_short_name)
-    return Betting(
-        home_spread=home_spread,
-        over_under=over_under,
-    )
+        return spread
+    raise _SpreadMatchingError(home_short, away_short, favorite_short_name)
+
+
+def _parse_over_under(betting_info: dict) -> Optional[float]:
+    if (over_under := betting_info.get("Over/Under") is not None):
+        return float(over_under)
+    return None
 
 
 class _SpreadMatchingError(Exception):
