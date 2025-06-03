@@ -224,8 +224,8 @@ python-dateutil = "^2.8.2"
 [package.source]
 type = "git"
 url = "https://github.com/NathanDeMaria/EndGame.git"
-reference = "800015e05ac7b29f199d395b52997899198a75dd"
-resolved_reference = "800015e05ac7b29f199d395b52997899198a75dd"
+reference = "068ed8b1ef0a9419268f3a1e4b0914f67b386e5b"
+resolved_reference = "068ed8b1ef0a9419268f3a1e4b0914f67b386e5b"
 subdirectory = "py-endgame"
 [[package]]
 name = "fire"
@@ -1028,7 +1028,7 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.11"
-content-hash = "27bdb19dc8ebb42649644589380e721e828bb4936c5047562a0e4d95f0a7c13d"
+content-hash = "9488dccd4c98ab8006f139fe8093183621dea496dd0e855ca181c718ddfee3ad"
 
 [metadata.files]
 aiobotocore = [
