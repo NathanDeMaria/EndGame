@@ -6,7 +6,7 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 
 # Poetry
 RUN curl -sSL https://install.python-poetry.org | python3 - --version 1.2.2
-ENV PATH /root/.local/bin:${PATH}
+ENV PATH=/root/.local/bin:${PATH}
 
 # Is this a good way to add stuff on load?
 # Not sure, but it's working
