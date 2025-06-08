@@ -1,0 +1,21 @@
+name: Run make push
+
+on:
+  push:
+    branches: [ "*" ]
+  pull_request:
+    branches: [ "*" ]
+
+jobs:
+  make-push:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      IMAGE_URL: ${{ secrets.IMAGE_URL }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    - name: Run make push
+      run: make push
