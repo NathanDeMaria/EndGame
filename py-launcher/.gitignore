@@ -34,9 +34,6 @@ ENV/
 # Environment variables
 .env
 
-# Poetry
-poetry.lock
-
 # Project specific
 .venv/
 
