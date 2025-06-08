@@ -553,17 +553,16 @@ tests = ["asttokens (>=2.1.0)", "coverage", "coverage-enable-subprocess", "ipyth
 
 [[package]]
 name = "fire"
-version = "0.4.0"
+version = "0.7.0"
 description = "A library for automatically generating command line interfaces."
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "fire-0.4.0.tar.gz", hash = "sha256:c5e2b8763699d1142393a46d0e3e790c5eb2f0706082df8f647878842c216a62"},
+    {file = "fire-0.7.0.tar.gz", hash = "sha256:961550f07936eaf65ad1dc8360f2b2bf8408fad46abbfa4d2a3794f8d2a95cdf"},
 ]
 
 [package.dependencies]
-six = "*"
 termcolor = "*"
 
 [[package]]
@@ -2159,4 +2158,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "bc58c7535d71d22ba34d0c8c9f0919a1b569bd47fef6b9acd15558dcd738db0d"
+content-hash = "e4c55cf6051f966bb029cecfc9feadc885371f6811dd9391d79462efc7fd06a1"
