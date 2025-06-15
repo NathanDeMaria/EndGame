@@ -6,6 +6,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+batch-core = {git = "https://github.com/NathanDemaria/aws-batch-optimization.git", rev = "587a6c3dc962c37568dc187dfa2adea13c5f8b41", subdirectory = "batch-core"}
 
 [build-system]
 requires = ["poetry-core"]

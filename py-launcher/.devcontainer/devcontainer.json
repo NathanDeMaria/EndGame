@@ -6,7 +6,10 @@
     },
     "mounts": [
         "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached"
+        "source=${localEnv:HOME}/.gitconfig,target=/root/.gitconfig,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.aws-batch/config.json,target=/root/.aws-batch/config.json,type=bind,readonly,consistency=cached",
+        "source=${localEnv:HOME}/.aws/credentials,target=/root/.aws/credentials,type=bind,consistency=cached,ro=1",
+        "source=${localEnv:HOME}/.aws/config,target=/root/.aws/config,type=bind,consistency=cached,ro=1"
     ],
     "customizations": {
         "vscode": {
@@ -30,5 +33,9 @@
                 }
             }
         }
-    }
+    },
+    "containerEnv": {
+        "BATCH_CONFIG_FILE_PATH": "/root/.aws-batch/config.json"
+    },
+    "postAttachCommand": "poetry install"
 }
