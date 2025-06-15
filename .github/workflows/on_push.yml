@@ -24,4 +24,5 @@ jobs:
     - name: Run make push
       run: |
         cd py-endgame-aws
+        echo '${{ secrets.BATCH_CORE_CONFIG }}' > config.json
         make push TAG=${GITHUB_SHA::7}
