@@ -6,6 +6,9 @@ ENV POETRY_VERSION=2.1.3 \
 RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="${POETRY_HOME}/bin:${PATH}"
 
+RUN mkdir -p /commandhistory && touch /commandhistory/.bash_history
+ENV HISTFILE=/commandhistory/.bash_history
+
 COPY poetry.* ./
 COPY pyproject.toml ./
 COPY README.md ./
