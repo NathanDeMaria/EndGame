@@ -10,6 +10,12 @@ ENV POETRY_HOME="/opt/poetry" \
 RUN curl -sSL https://install.python-poetry.org | python3 -
 ENV PATH="${POETRY_HOME}/bin:$PATH"
 
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" &&\
+    unzip awscliv2.zip &&\
+    ./aws/install &&\
+    rm awscliv2.zip &&\
+    rm -r ./aws
+
 # Is this a good way to add stuff on load?
 # Not sure, but it's working
 COPY profile.sh /root/profile.sh

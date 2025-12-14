@@ -38,12 +38,13 @@
         "ms-python.vscode-pylance",
         "sourcery.sourcery",
         "njpwerner.autodocstring",
-        "github.vscode-github-actions"
+        "github.vscode-github-actions",
+        "ms-toolsai.jupyter"
       ]
     }
   },
   "mounts": [
-    "source=endgame-aws-bashhistory,target=/commandhistory,type=volume",
+    "source=bashhistory-volume,target=/commandhistory,type=volume",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.endgame/cache,target=/root/.endgame/cache,type=bind,consistency=cached",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/credentials,target=/root/.aws/credentials,type=bind,consistency=cached,ro=1",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/config,target=/root/.aws/config,type=bind,consistency=cached,ro=1",
