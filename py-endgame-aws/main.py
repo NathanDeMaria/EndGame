@@ -1,6 +1,7 @@
 import json
 from fire import Fire
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from endgame.ncaabb import NcaabbGender
 
 from endgame.ncaabb.ncaabb import get_ncaabb_season, get_ncaabb_spreads
@@ -61,10 +62,15 @@ async def box_scores(gender_name: str, year: int):
     )
 
 
-async def odds(day: str):
-    odds = [o async for o in get_ncaabb_spreads(date.fromisoformat(day))]
+async def odds(day: str = None):
+    parsed_date = (
+        datetime.fromisoformat(day).date()
+        if day is not None
+        else datetime.now(tz=ZoneInfo("America/Chicago")).date()
+    )
+    odds = [o async for o in get_ncaabb_spreads(parsed_date)]
     await save_data_to_s3(
-        _CONFIG.bucket, f"odds/ncaabb/{day}.json", json.dumps(odds).encode()
+        _CONFIG.bucket, f"odds/ncaabb/{parsed_date}.json", json.dumps(odds).encode()
     )
 
 
