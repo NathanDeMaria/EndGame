@@ -41,3 +41,8 @@ variable "s3_bucket_name" {
   description = "The name of the S3 bucket to write to"
   type        = string
 }
+
+variable "notification_email" {
+  description = "Email address to receive notifications when the job fails"
+  type        = string
+}
