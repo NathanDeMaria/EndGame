@@ -6,4 +6,5 @@ from .io import (
     read_seasons,
     read_box_scores,
     FlattenedBoxScore,
+    save_data_to_s3,
 )

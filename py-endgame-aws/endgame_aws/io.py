@@ -25,9 +25,7 @@ async def save_to_s3(seasons: list[Season], bucket: str, key: str):
     Save these seasons to a pickle in S3
     """
     dumped = pickle.dumps(seasons)
-    session = get_session()
-    async with session.create_client("s3") as client:
-        await client.put_object(Bucket=bucket, Key=key, Body=dumped)
+    await save_data_to_s3(bucket, key, dumped)
 
 
 async def save_csv_to_s3(data: list[dict], bucket: str, key: str):
@@ -36,10 +34,7 @@ async def save_csv_to_s3(data: list[dict], bucket: str, key: str):
         writer.writeheader()
         writer.writerows(data)
         body = stream.getvalue()
-
-    session = get_session()
-    async with session.create_client("s3") as client:
-        await client.put_object(Bucket=bucket, Key=key, Body=body)
+    await save_data_to_s3(bucket, key, body.encode())
 
 
 async def read_seasons(bucket: str, key: str) -> list[Season]:
@@ -76,5 +71,11 @@ async def _read_csv(
     with StringIO(raw.decode()) as read_stream:
         reader = DictReader(read_stream)
         for item in reader:
-            cleaned = {k: None if v == '' else v for k, v in item.items()}
+            cleaned = {k: None if v == "" else v for k, v in item.items()}
             yield data_class.schema().load(cleaned)
+
+
+async def save_data_to_s3(bucket: str, key: str, data: bytes):
+    session = get_session()
+    async with session.create_client("s3") as client:
+        await client.put_object(Bucket=bucket, Key=key, Body=data)

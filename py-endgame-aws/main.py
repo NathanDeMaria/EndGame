@@ -1,16 +1,24 @@
+import json
 from fire import Fire
+from datetime import date
 from endgame.ncaabb import NcaabbGender
 
-from endgame.ncaabb.ncaabb import get_ncaabb_season
+from endgame.ncaabb.ncaabb import get_ncaabb_season, get_ncaabb_spreads
 from endgame.ncaabb.matchup import logger, apply_in_parallel, get_possessions
 from endgame.ncaabb.box_score.all import _get_season_box_scores
-from endgame_aws import save_to_s3, save_csv_to_s3, Config, FlattenedBoxScore
+from endgame_aws import (
+    save_to_s3,
+    save_csv_to_s3,
+    Config,
+    FlattenedBoxScore,
+    save_data_to_s3,
+)
 
 
 _CONFIG = Config.init_from_file()
 
 
-async def main(gender_name: str, year: int):
+async def box_scores(gender_name: str, year: int):
     gender = NcaabbGender[gender_name]
     season = await get_ncaabb_season(year, gender)
 
@@ -45,11 +53,20 @@ async def main(gender_name: str, year: int):
             ).to_dict()
             for player in box_score.away.players
         )
-
+    if not box_score_rows:
+        # Early seasons (ex: NCAAWBB 2011) don't have box scores
+        return
     await save_csv_to_s3(
         box_score_rows, _CONFIG.bucket, f"seasons/{year}/{gender.name}_box.csv"
     )
 
 
+async def odds(day: str):
+    odds = [o async for o in get_ncaabb_spreads(date.fromisoformat(day))]
+    await save_data_to_s3(
+        _CONFIG.bucket, f"odds/ncaabb/{day}.json", json.dumps(odds).encode()
+    )
+
+
 if __name__ == "__main__":
-    Fire(main)
+    Fire({"box_scores": box_scores, "odds": odds})
