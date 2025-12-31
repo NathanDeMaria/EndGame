@@ -15,8 +15,7 @@ async def apply_in_parallel(
     Run a list of tasks in parallel
     """
     tasks: list[asyncio.Task[ReturnType]] = [
-        asyncio.create_task(function(*arg_set))
-        for arg_set in args
+        asyncio.create_task(function(*arg_set)) for arg_set in args
     ]
     for task in tasks:
         yield await task

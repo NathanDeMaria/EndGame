@@ -34,3 +34,11 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.mypy]
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+# no stubs for fire :(
+module = ["fire"]
+ignore_missing_imports = true

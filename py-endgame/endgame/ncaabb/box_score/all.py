@@ -34,12 +34,6 @@ class TeamBoxScore(DataClassJsonMixin):
 
 
 @dataclass
-class Betting(DataClassJsonMixin):
-    home_spread: Optional[float]
-    over_under: Optional[float]
-
-
-@dataclass
 class BoxScore(DataClassJsonMixin):
     """
     Box score of a game
@@ -48,7 +42,6 @@ class BoxScore(DataClassJsonMixin):
     game_id: str
     home: TeamBoxScore
     away: TeamBoxScore
-    betting: Optional[Betting]
 
 
 @dataclass
@@ -150,56 +143,13 @@ async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore
             home_box_score = _parse_team_box_score(raw_home, True, home_id)
         else:
             return None
-        betting = _parse_betting(soup)
     except Exception as err:
         logger.warning("Struggling with %s", url)
         raise err
 
     await content.save_if_necessary()
 
-    return BoxScore(game_id=game_id, home=home_box_score, away=away_box_score, betting=betting)
-
-
-def _parse_betting(soup: BeautifulSoup) -> Optional[Betting]:
-    betting_item = soup.select("div.GameInfo__BettingItem")
-    if not betting_item:
-        return None
-    betting_info = dict(d.text.split(":") for d in betting_item)
-    over_under = _parse_over_under(betting_info)
-    home_spread = _parse_spread(betting_info, soup)
-
-    return Betting(
-        home_spread=home_spread,
-        over_under=over_under,
-    )
-
-
-def _parse_spread(betting_info: dict, soup: BeautifulSoup) -> Optional[float]:
-    if "Line" not in betting_info:
-        return None
-    line = betting_info["Line"].strip()
-    favorite_short_name, raw_spread = line.split(" ")
-    spread = float(raw_spread)
-    overview = soup.select_one("div.Gamestrip__Overview")
-    if overview is None:
-        raise _ParseError
-    away_short, home_short = _parse_short_names(overview)
-    if favorite_short_name == away_short:
-        return -spread
-    elif favorite_short_name == home_short:
-        return spread
-    raise _SpreadMatchingError(home_short, away_short, favorite_short_name)
-
-
-def _parse_over_under(betting_info: dict) -> Optional[float]:
-    if (over_under := betting_info.get("Over/Under") is not None):
-        return float(over_under)
-    return None
-
-
-class _SpreadMatchingError(Exception):
-    def __init__(self, home: str, away: str, match: str) -> None:
-        super().__init__(f"Failed to assign spead {home=} {away=} {match=}")
+    return BoxScore(game_id=game_id, home=home_box_score, away=away_box_score)
 
 
 def _parse_short_names(overview: Tag) -> tuple[str, str]:
@@ -213,6 +163,7 @@ def _get_td_text(tag: Tag) -> str:
         raise _ParseError
     return td.text
 
+
 def _get_team_id(team_name_tag: Tag) -> str:
     team_link = team_name_tag.attrs["href"]
     # This link hopefully always looks like:
@@ -225,10 +176,7 @@ def _read_table(box_score_table: Tag, team_id: str) -> Iterator[RawPlayer]:
     header = stats_table.select_one("tr:has(td.Table__customHeader)")
     if header is None:
         raise _ParseError
-    columns = [
-        col.text
-        for col in header.select("td")
-    ]
+    columns = [col.text for col in header.select("td")]
     player_names = names_table.select("td:not(.Table__customHeader)")
     if not player_names:
         # Blank for a forfeit, like
