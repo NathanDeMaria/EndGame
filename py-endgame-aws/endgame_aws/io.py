@@ -10,7 +10,8 @@ from endgame.ncaabb.box_score import PlayerBoxScore
 from endgame.ncaabb.possession_side import PossessionSide
 
 
-class _SerializablePossession(PossessionSide, DataClassJsonMixin):
+class _SerializablePossession(PossessionSide, DataClassJsonMixin):  # type: ignore[misc]
+    # Ignore mypy because this double-defines to_dict, but it's unused anyway
     pass
 
 

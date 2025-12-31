@@ -8,7 +8,7 @@ authors = []
 python = "^3.11"
 fire = ">=0.4.0,<1.0"
 aiobotocore = "^2.4.0"
-endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "97b56ef8c2b27412d26b1e9e6310425177144e67", subdirectory = "py-endgame"}
+endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "92cf498e69771b68f095d94d739474ce8024da2f", subdirectory = "py-endgame"}
 dataclasses-json = ">=0.5.7,<1.0"
 
 [tool.poetry.group.dev.dependencies]
@@ -25,3 +25,11 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 endgame-aws = "endgame_aws.cli:main"
+
+[tool.mypy]
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+# no stubs for fire :(
+module = ["fire"]
+ignore_missing_imports = true

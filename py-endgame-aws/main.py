@@ -62,7 +62,7 @@ async def box_scores(gender_name: str, year: int):
     )
 
 
-async def odds(day: str = None):
+async def odds(day: str | None = None):
     parsed_date = (
         datetime.fromisoformat(day).date()
         if day is not None
