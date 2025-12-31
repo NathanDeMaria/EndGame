@@ -7,7 +7,7 @@ def _build_params() -> list[tuple[str, int]]:
     params = []
     for gender in ["mens", "womens"]:
         # TODO: actually figure out a good first year
-        params.extend((gender, year) for year in range(2010, 2024))
+        params.extend((gender, year) for year in range(2010, 2026))
     return params
 
 
@@ -21,7 +21,7 @@ async def _main() -> None:
         # TODO: probably don't need to create this every time
         definition = await JobDefinition.create_from_image(client, config.repo_urls['endgame'])
 
-        job_tasks = ((definition.run(gender_name=gender, year=year) for gender, year in current_params))
+        job_tasks = ((definition.run("box_scores", gender_name=gender, year=year) for gender, year in current_params))
         jobs = await asyncio.gather(*job_tasks)
 
         # Wait for all jobs in parallel
