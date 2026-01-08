@@ -27,14 +27,14 @@ boto3 = ["boto3 (>=1.37.2,<1.37.4)"]
 
 [[package]]
 name = "aiofiles"
-version = "0.8.0"
+version = "25.1.0"
 description = "File support for asyncio."
 optional = false
-python-versions = ">=3.6,<4.0"
+python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "aiofiles-0.8.0-py3-none-any.whl", hash = "sha256:7a973fc22b29e9962d0897805ace5856e6a566ab1f0c8e5c91ff6c866519c937"},
-    {file = "aiofiles-0.8.0.tar.gz", hash = "sha256:8334f23235248a3b2e83b2c3a78a22674f39969b96397126cc93664d9a901e59"},
+    {file = "aiofiles-25.1.0-py3-none-any.whl", hash = "sha256:abe311e527c862958650f9438e859c1fa7568a141b22abcd015e120e86a85695"},
+    {file = "aiofiles-25.1.0.tar.gz", hash = "sha256:a8d728f0a29de45dc521f18f07297428d56992a742f0cd2701ba86e44d23d5b2"},
 ]
 
 [[package]]
@@ -588,7 +588,7 @@ files = []
 develop = false
 
 [package.dependencies]
-aiofiles = "^0.8.0"
+aiofiles = "^25.1.0"
 aiohttp = "^3.8.1"
 beautifulsoup4 = "^4.10.0"
 dataclasses-json = "^0.5.6"
@@ -598,8 +598,8 @@ python-dateutil = "^2.8.2"
 [package.source]
 type = "git"
 url = "https://github.com/NathanDeMaria/EndGame.git"
-reference = "92cf498e69771b68f095d94d739474ce8024da2f"
-resolved_reference = "92cf498e69771b68f095d94d739474ce8024da2f"
+reference = "5a261c383ebd4325b76ca979a274cd6e338854f8"
+resolved_reference = "5a261c383ebd4325b76ca979a274cd6e338854f8"
 subdirectory = "py-endgame"
 
 [[package]]
@@ -2618,4 +2618,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "b22833299c78da4627f2a59bf2791cd1f58eb0f0061a3671a768788e878db99d"
+content-hash = "eb68e23305180da0e1aceb0c04c9e968a73f039913ad60052f1c0a35d143453e"
