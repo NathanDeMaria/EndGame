@@ -22,6 +22,13 @@ class Config:
 
         https://github.com/NathanDeMaria/aws-batch-optimization/blob/7ff0b5c37f4f7fd00cbf758ec78baf019d418ab0/infra/Makefile#L7
         """
-        with open(_PROJECT_ROOT / "config.json", encoding="utf-8") as file:
-            raw = json.load(file)
-        return cls(bucket=raw["bucket"]["value"])
+        config_paths = [
+            _PROJECT_ROOT / "config.json",
+            Path.home() / ".aws-batch" / "config.json",
+        ]
+        for config_path in config_paths:
+            if config_path.exists():
+                with config_path.open() as file:
+                    raw = json.load(file)
+                return cls(bucket=raw["bucket"]["value"])
+        raise FileNotFoundError("Config file not found")
