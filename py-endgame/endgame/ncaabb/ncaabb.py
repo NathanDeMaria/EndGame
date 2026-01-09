@@ -181,6 +181,24 @@ async def _get_ncaabb_odds(
         yield odd
 
 
+def is_between_dates(
+    day: date, month_day_start: tuple[int, int], month_day_end: tuple[int, int]
+) -> bool:
+    """
+    Checks if a given date is between a start and end date (inclusive).
+    Handles ranges that wrap around the year end (e.g. start > end).
+    """
+    day_tuple = (day.month, day.day)
+
+    if month_day_start <= month_day_end:
+        # Standard range within the same year
+        return month_day_start <= day_tuple <= month_day_end
+    # Range wraps around the new year (e.g. Nov to Mar)
+    # It's in the range if it's after the start date (late in the year)
+    # OR before the end date (early in the year)
+    return day_tuple >= month_day_start or day_tuple <= month_day_end
+
+
 async def get_ncaabb_spreads(day: date) -> AsyncIterator[Odds]:
     regular_start = date(day.year, *REGULAR_SEASON_START)
     regular_end = date(day.year + 1, *REGULAR_SEASON_END)
@@ -188,9 +206,9 @@ async def get_ncaabb_spreads(day: date) -> AsyncIterator[Odds]:
     postseason_end = date(day.year + 1, *SEASON_END)
     day_params = []
     for gender in NcaabbGender:
-        if regular_start <= day <= regular_end:
+        if is_between_dates(day, REGULAR_SEASON_START, REGULAR_SEASON_END):
             day_params.append(DayParams(day, gender, NcaabbGroup.d1))
-        if postseason_start <= day <= postseason_end:
+        if is_between_dates(day, POST_SEASON_START, SEASON_END):
             for group in POSTSEASON_GROUPS:
                 day_params.append(DayParams(day, gender, group))
 
