@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from io import StringIO
 from typing import AsyncIterator, Type, TypeVar
 from aiobotocore.session import get_session
+from botocore.exceptions import ClientError
 from dataclasses_json import DataClassJsonMixin
 from endgame.ncaabb.ncaabb import Season
 from endgame.ncaabb.box_score import PlayerBoxScore
@@ -80,8 +81,18 @@ async def save_data_to_s3(bucket: str, key: str, data: bytes):
         await client.put_object(Bucket=bucket, Key=key, Body=data)
 
 
+class S3NotFoundException(Exception):
+    pass
+
+
 async def _read_from_s3(bucket: str, key: str, client) -> bytes:
-    response = await client.get_object(Bucket=bucket, Key=key)
+    try:
+        response = await client.get_object(Bucket=bucket, Key=key)
+    except ClientError as ex:
+        if ex.response['Error']['Code'] == 'NoSuchKey':
+            raise S3NotFoundException from ex
+        else:
+            raise
     async with response["Body"] as stream:
         return await stream.read()
 

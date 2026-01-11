@@ -4,7 +4,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from endgame.ncaabb import NcaabbGender
 
-from endgame.ncaabb.ncaabb import get_ncaabb_season, get_ncaabb_spreads
+from endgame.ncaabb.ncaabb import get_ncaabb_season, get_ncaabb_spreads, Season
 from endgame.ncaabb.matchup import logger, apply_in_parallel, get_possessions
 from endgame.ncaabb.box_score.all import _get_season_box_scores
 from endgame_aws import (
@@ -14,15 +14,23 @@ from endgame_aws import (
     FlattenedBoxScore,
     save_data_to_s3,
 )
-
+from endgame_aws.io import S3NotFoundException, read_seasons
 
 _CONFIG = Config.init_from_file()
 
 
+async def _load_season(bucket: str, year: int, gender: NcaabbGender) -> Season | None:
+    try:
+        seasons = await read_seasons(bucket, f"seasons/{year}/{gender.name}.pkl")
+        return seasons[0]
+    except S3NotFoundException:
+        return None
+
+
 async def box_scores(gender_name: str, year: int):
     gender = NcaabbGender[gender_name]
-    season = await get_ncaabb_season(year, gender)
-
+    season_so_far = await _load_season(_CONFIG.bucket, year, gender)
+    season = await get_ncaabb_season(year, gender, season_so_far)
     await save_to_s3([season], _CONFIG.bucket, f"seasons/{year}/{gender.name}.pkl")
 
     rows: list[dict] = []
