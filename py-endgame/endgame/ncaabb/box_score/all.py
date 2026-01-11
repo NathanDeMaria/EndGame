@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from logging import getLogger
-from typing import Iterable, Iterator, List, Optional
+from typing import Iterable, Iterator, List, Optional, AsyncIterator
 from bs4 import BeautifulSoup, Tag
 from dataclasses_json import DataClassJsonMixin
 from aiohttp.client_exceptions import ClientResponseError
@@ -82,7 +82,7 @@ async def save_box_scores(gender: NcaabbGender, location: Optional[str] = None):
             box_scores.extend(scores.games)
             logger.info("Used box scores cache for %d", season.year)
             continue
-        season_scores = [g async for g in _get_season_box_scores(season, gender)]
+        season_scores = [g async for g in get_season_box_scores(season, gender)]
         box_scores.extend(season_scores)
         await BOX_SCORE_CACHE.save_to_cache(
             BoxScoreSeason(gender.name, season.year, season_scores)
@@ -93,10 +93,17 @@ async def save_box_scores(gender: NcaabbGender, location: Optional[str] = None):
         file.write(serialized)
 
 
-async def _get_season_box_scores(season: Season, gender: NcaabbGender):
+async def get_season_box_scores(
+    season: Season, gender: NcaabbGender, skip_game_ids: set[str] | None = None
+) -> AsyncIterator[BoxScore]:
+    game_id_filter = skip_game_ids or set()
     for week in season.weeks:
         logger.info("Getting box scores for %d %d", season.year, week.number)
-        args = [(gender, game.game_id) for game in week.games]
+        args = [
+            (gender, game.game_id)
+            for game in week.games
+            if game.game_id not in game_id_filter
+        ]
         games = apply_in_parallel(get_box_score, args)
         async for game in games:
             if game is not None:
