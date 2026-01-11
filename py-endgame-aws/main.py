@@ -69,12 +69,15 @@ async def box_scores(gender_name: str, year: int):
     rows: list[dict] = [r.to_dict() for r in rows_so_far]
     pulled_game_ids = {side.game_id for side in rows_so_far}
     for week in season.weeks:
-        logger.info("Getting matchups for %d %d", season.year, week.number)
         args = [
             (gender, game.game_id)
             for game in week.games
             if game.game_id not in pulled_game_ids
         ]
+        if not args:
+            logger.info("No new matchups for %d %d", season.year, week.number)
+            continue
+        logger.info("Getting matchups for %d %d", season.year, week.number)
         games = apply_in_parallel(get_possessions, args)
         async for sides in games:
             if sides is None:
