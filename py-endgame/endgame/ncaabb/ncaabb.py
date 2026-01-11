@@ -99,7 +99,7 @@ async def get_ncaabb_season(
         # Might get the most recent day's games again unnecessarily.
         # That's fine because we don't know if all the games
         # for that day were done last time this was run.
-        start = max(g.date for w in season_so_far.weeks for g in w.games)
+        start = max(g.date for w in season_so_far.weeks for g in w.games).date()
     end = date(year + 1, *REGULAR_SEASON_END)
     # Don't try to get dates in the future
     end = min(end, date.today())
@@ -110,7 +110,7 @@ async def get_ncaabb_season(
         # Might get the most recent day's games again unnecessarily.
         # That's fine because we don't know if all the games
         # for that day were done last time this was run.
-        start = max(g.date for w in season_so_far.weeks for g in w.games)
+        start = max(g.date for w in season_so_far.weeks for g in w.games).date()
     end = date(year + 1, *SEASON_END)
     # Don't try to get dates in the future
     end = min(end, date.today())
