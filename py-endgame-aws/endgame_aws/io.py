@@ -89,7 +89,7 @@ async def _read_from_s3(bucket: str, key: str, client) -> bytes:
     try:
         response = await client.get_object(Bucket=bucket, Key=key)
     except ClientError as ex:
-        if ex.response['Error']['Code'] == 'NoSuchKey':
+        if ex.response["Error"]["Code"] == "NoSuchKey":
             raise S3NotFoundException from ex
         else:
             raise
@@ -108,9 +108,7 @@ async def read_all_odds(bucket: str, prefix: str) -> AsyncIterator[dict]:
     session = get_session()
     async with session.create_client("s3") as client:
         odds_keys = _list_keys(bucket, prefix, client)
-        tasks = [
-            _read_from_s3(bucket, key, client) async for key in odds_keys
-        ]
+        tasks = [_read_from_s3(bucket, key, client) async for key in odds_keys]
         bodies = await asyncio.gather(*tasks)
         for body in bodies:
             parsed = json.loads(body.decode())
