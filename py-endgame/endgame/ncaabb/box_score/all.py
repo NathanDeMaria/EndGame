@@ -98,16 +98,23 @@ async def get_season_box_scores(
 ) -> AsyncIterator[BoxScore]:
     game_id_filter = skip_game_ids or set()
     for week in season.weeks:
-        logger.info("Getting box scores for %d %d", season.year, week.number)
         args = [
             (gender, game.game_id)
             for game in week.games
             if game.game_id not in game_id_filter
         ]
-        games = apply_in_parallel(get_box_score, args)
-        async for game in games:
-            if game is not None:
-                yield game
+        if args:
+            logger.info("Getting box scores for %d %d", season.year, week.number)
+            games = apply_in_parallel(get_box_score, args)
+            async for game in games:
+                if game is not None:
+                    yield game
+        else:
+            logger.info(
+                "Skipping box scores for %d %d, already pulled",
+                season.year,
+                week.number,
+            )
 
 
 async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore]:
