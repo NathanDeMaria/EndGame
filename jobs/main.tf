@@ -2,37 +2,61 @@ provider "aws" {
   region = var.aws_region
 }
 
+locals {
+  current_month = tonumber(formatdate("M", timestamp()))
+  current_year  = tonumber(formatdate("YYYY", timestamp()))
+  # If before August (8), use previous year as season year.
+  # TODO: will need to pass in the year in the future
+  # this locks on the date of deploy
+  season_year = local.current_month < 8 ? tostring(local.current_year - 1) : tostring(local.current_year)
+}
+
 # ------------------------------------------------------------------------------
 # Batch Job Definition
 # ------------------------------------------------------------------------------
-resource "aws_batch_job_definition" "this" {
-  name = var.job_name
-  type = "container"
+# ------------------------------------------------------------------------------
+# Scheduled Job Module(s)
+# ------------------------------------------------------------------------------
+module "daily_odds" {
+  source = "./modules/scheduled_job"
 
-  # Container properties (JSON)
-  container_properties = jsonencode({
-    image = "${var.ecr_repository_url}:${var.image_tag}"
+  job_name            = "daily-odds"
+  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  command             = ["odds"]
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  schedule_expression = var.schedule_expression
+  schedule_timezone   = var.schedule_timezone
+}
 
-    resourceRequirements = [
-      {
-        type  = "VCPU"
-        value = "2"
-      },
-      {
-        type  = "MEMORY"
-        value = "4096"
-      }
-    ]
+module "daily_games_mens" {
+  source = "./modules/scheduled_job"
 
-    command = ["odds"]
+  job_name            = "daily-games-mens"
+  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  command             = ["box_scores", "mens", local.season_year]
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  schedule_expression = var.schedule_expression
+  schedule_timezone   = var.schedule_timezone
+}
 
-    # Execution role (needed to pull from ECR)
-    executionRoleArn = aws_iam_role.batch_execution_role.arn
-    # Job role (needed for application permissions like S3)
-    jobRoleArn = aws_iam_role.batch_job_role.arn
-  })
+module "daily_games_womens" {
+  source = "./modules/scheduled_job"
 
-  platform_capabilities = ["EC2"]
+  job_name            = "daily-games-womens"
+  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  command             = ["box_scores", "womens", local.season_year]
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  schedule_expression = var.schedule_expression
+  schedule_timezone   = var.schedule_timezone
 }
 
 # ------------------------------------------------------------------------------
@@ -41,7 +65,7 @@ resource "aws_batch_job_definition" "this" {
 
 # Execution Role (Agent/Docker daemon permissions, e.g. pulling images)
 resource "aws_iam_role" "batch_execution_role" {
-  name = "${var.job_name}-execution-role"
+  name = "endgame-batch-execution-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -64,7 +88,7 @@ resource "aws_iam_role_policy_attachment" "batch_execution_policy" {
 
 # Job Role (Application code permissions)
 resource "aws_iam_role" "batch_job_role" {
-  name = "${var.job_name}-job-role"
+  name = "endgame-batch-job-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -82,7 +106,7 @@ resource "aws_iam_role" "batch_job_role" {
 
 # S3 Permissions for Job Role
 resource "aws_iam_policy" "batch_job_s3_policy" {
-  name        = "${var.job_name}-s3-policy"
+  name        = "endgame-batch-job-s3-policy"
   description = "Policy allowing Batch Job to write to specific S3 bucket"
 
   policy = jsonencode({
@@ -124,7 +148,7 @@ data "aws_caller_identity" "current" {}
 # IAM Role for Scheduler
 # ------------------------------------------------------------------------------
 resource "aws_iam_role" "scheduler_role" {
-  name = "${var.job_name}-scheduler-role"
+  name = "endgame-scheduler-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -141,7 +165,7 @@ resource "aws_iam_role" "scheduler_role" {
 }
 
 resource "aws_iam_policy" "scheduler_policy" {
-  name        = "${var.job_name}-scheduler-policy"
+  name        = "endgame-scheduler-policy"
   description = "Policy allowing EventBridge Scheduler to submit Batch jobs"
 
   policy = jsonencode({
@@ -152,8 +176,7 @@ resource "aws_iam_policy" "scheduler_policy" {
         Action = "batch:SubmitJob"
         Resource = [
           data.aws_batch_job_queue.this.arn,
-          aws_batch_job_definition.this.arn,
-          "arn:aws:batch:${var.aws_region}::job-definition/*"
+          "arn:aws:batch:${var.aws_region}:${data.aws_caller_identity.current.account_id}:job-definition/*"
         ]
       }
     ]
@@ -166,36 +189,10 @@ resource "aws_iam_role_policy_attachment" "scheduler_policy_attach" {
 }
 
 # ------------------------------------------------------------------------------
-# EventBridge Scheduler
-# ------------------------------------------------------------------------------
-resource "aws_scheduler_schedule" "this" {
-  name       = "${var.job_name}-schedule"
-  group_name = "default"
-
-  flexible_time_window {
-    mode = "OFF"
-  }
-
-  schedule_expression          = var.schedule_expression
-  schedule_expression_timezone = var.schedule_timezone
-
-  target {
-    arn      = "arn:aws:scheduler:::aws-sdk:batch:submitJob"
-    role_arn = aws_iam_role.scheduler_role.arn
-
-    input = jsonencode({
-      JobName       = "${var.job_name}-scheduled-run"
-      JobQueue      = data.aws_batch_job_queue.this.arn
-      JobDefinition = aws_batch_job_definition.this.arn
-    })
-  }
-}
-
-# ------------------------------------------------------------------------------
 # Failure Notifications (SNS)
 # ------------------------------------------------------------------------------
 resource "aws_sns_topic" "batch_failure" {
-  name = "${var.job_name}-failure-topic"
+  name = "endgame-batch-failure-topic"
 }
 
 resource "aws_sns_topic_subscription" "batch_failure_email" {
@@ -205,7 +202,7 @@ resource "aws_sns_topic_subscription" "batch_failure_email" {
 }
 
 resource "aws_cloudwatch_event_rule" "batch_failure" {
-  name        = "${var.job_name}-failure-rule"
+  name        = "endgame-batch-failure-rule"
   description = "Trigger notification when Batch Job fails"
 
   event_pattern = jsonencode({
@@ -214,9 +211,6 @@ resource "aws_cloudwatch_event_rule" "batch_failure" {
     detail = {
       status   = ["FAILED"]
       jobQueue = [data.aws_batch_job_queue.this.arn]
-      jobDefinition = [{
-        prefix = "arn:aws:batch:${var.aws_region}:${data.aws_caller_identity.current.account_id}:job-definition/${aws_batch_job_definition.this.name}"
-      }]
     }
   })
 

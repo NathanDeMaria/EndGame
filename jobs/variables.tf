@@ -19,12 +19,6 @@ variable "image_tag" {
   default     = "latest"
 }
 
-variable "job_name" {
-  description = "The name of the Batch Job"
-  type        = string
-  default     = "morning-batch-job"
-}
-
 variable "schedule_expression" {
   description = "The cron expression for the schedule"
   type        = string
