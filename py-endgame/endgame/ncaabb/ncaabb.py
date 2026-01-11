@@ -1,8 +1,9 @@
+from collections import defaultdict
 from datetime import date, timedelta, datetime
 from enum import Enum
 from itertools import groupby
 from logging import getLogger
-from typing import List, NamedTuple, AsyncIterator
+from typing import List, NamedTuple, AsyncIterator, DefaultDict
 import aiohttp
 
 from ..async_tools import apply_in_parallel
@@ -83,7 +84,9 @@ async def get_seasons(gender: NcaabbGender) -> List[Season]:
     return [s async for s in apply_in_parallel(get_ncaabb_season, args)]
 
 
-async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
+async def get_ncaabb_season(
+    year: int, gender: NcaabbGender, season_so_far: Season | None = None
+) -> Season:
     logger.info("Getting NCAABB %s season %d", gender.name, year)
     cache = SeasonCache(f"ncaa{gender.name[0]}bb")
     season = cache.check_cache(year)
@@ -92,19 +95,29 @@ async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
 
     day_params: List[DayParams] = []
     start = date(year, *REGULAR_SEASON_START)
+    if season_so_far:
+        # Might get the most recent day's games again unnecessarily.
+        # That's fine because we don't know if all the games
+        # for that day were done last time this was run.
+        start = max(g.date for w in season_so_far.weeks for g in w.games)
     end = date(year + 1, *REGULAR_SEASON_END)
     # Don't try to get dates in the future
     end = min(end, date.today())
     for day in _date_range(start, end):
         day_params.append(DayParams(day, gender, NcaabbGroup.d1))
     start = date(year + 1, *POST_SEASON_START)
+    if season_so_far:
+        # Might get the most recent day's games again unnecessarily.
+        # That's fine because we don't know if all the games
+        # for that day were done last time this was run.
+        start = max(g.date for w in season_so_far.weeks for g in w.games)
     end = date(year + 1, *SEASON_END)
     # Don't try to get dates in the future
     end = min(end, date.today())
     for group in POSTSEASON_GROUPS:
         for day in _date_range(start, end):
             day_params.append(DayParams(day, gender, group))
-
+    # TODO: consider having season_so_far.trouble_params re-checked
     games: List[Game] = []
     trouble_days = []
     for day_param in day_params:
@@ -126,11 +139,38 @@ async def get_ncaabb_season(year: int, gender: NcaabbGender) -> Season:
         for week_num, (_, week_games) in enumerate(week_groups)
     ]
     season = Season(weeks, year, trouble_days)
+    if season_so_far:
+        season = merge_seasons([season_so_far, season])
 
     if datetime.utcnow() > datetime(year + 1, *SEASON_END):
         cache.save_to_cache(season)
 
     return season
+
+
+def merge_seasons(seasons: List[Season]) -> Season:
+    assert all(s.year == seasons[0].year for s in seasons)
+
+    # Merge weeks/games
+    weeks_games: DefaultDict[int, dict[str, Game]] = defaultdict(dict)
+    for season in seasons:
+        for week in season.weeks:
+            for game in week.games:
+                # If a game showed up multiple times, keep the latest version
+                weeks_games[week.number][game.game_id] = game
+    weeks = [
+        Week(list(week_games.values()), week_num)
+        for week_num, week_games in weeks_games.items()
+    ]
+
+    # Merge trouble params
+    trouble_params = set(sum((s.trouble_params or [] for s in seasons), []))
+
+    return Season(
+        weeks,
+        seasons[0].year,
+        list(trouble_params),
+    )
 
 
 def _get_week(gametime: datetime) -> date:
