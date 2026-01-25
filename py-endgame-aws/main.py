@@ -113,15 +113,17 @@ async def box_scores(gender_name: str, year: int):
     )
 
 
-async def odds(day: str | None = None):
+async def odds(day: str | None = None, time: str | None = None):
+    now = datetime.now(tz=ZoneInfo("America/Chicago"))
     parsed_date = (
         datetime.fromisoformat(day).date()
         if day is not None
-        else datetime.now(tz=ZoneInfo("America/Chicago")).date()
+        else now.date()
     )
     odds = [o async for o in get_ncaabb_spreads(parsed_date)]
+    parsed_time = time if time is not None else now.strftime("%H-%M")
     await save_data_to_s3(
-        _CONFIG.bucket, f"odds/ncaabb/{parsed_date}.json", json.dumps(odds).encode()
+        _CONFIG.bucket, f"odds/ncaabb/{parsed_date}/{parsed_time}.json", json.dumps(odds).encode()
     )
 
 
