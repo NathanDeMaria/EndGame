@@ -17,17 +17,17 @@ locals {
 # ------------------------------------------------------------------------------
 # Scheduled Job Module(s)
 # ------------------------------------------------------------------------------
-module "daily_odds" {
+module "odds" {
   source = "./modules/scheduled_job"
 
-  job_name            = "daily-odds"
+  job_name            = "odds"
   image               = "${var.ecr_repository_url}:${var.image_tag}"
   command             = ["odds"]
   execution_role_arn  = aws_iam_role.batch_execution_role.arn
   job_role_arn        = aws_iam_role.batch_job_role.arn
   scheduler_role_arn  = aws_iam_role.scheduler_role.arn
   job_queue_arn       = data.aws_batch_job_queue.this.arn
-  schedule_expression = var.schedule_expression
+  schedule_expression = "cron(0 10-22 * * ? *)"
   schedule_timezone   = var.schedule_timezone
 }
 
