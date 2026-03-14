@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from aiobotocore.session import get_session
 from endgame.ncaabb import NcaabbGender
 
-from .io import save_data_to_s3, read_from_s3
+from .io import list_keys, save_data_to_s3, read_from_s3
 from .config import Config
 
 
@@ -53,10 +53,16 @@ class _DatedStore[_StoreType]:
         return self._deserializer(data)
 
     async def load_all(self, league: NcaabbGender) -> AsyncIterator[_StoreType]:
-        return NotImplemented
+        prefix = self._build_prefix(league)
+        async for key in list_keys(self._bucket, prefix, self._client):
+            data = await read_from_s3(self._bucket, key, self._client)
+            yield self._deserializer(data)
+
+    def _build_prefix(self, league: NcaabbGender) -> str:
+        return f"{self._prefix}/{league.name}"
 
     def _build_key(self, date: datetime.date, league: NcaabbGender) -> str:
-        return f"{self._prefix}/{league.name}/{date.isoformat()}.{self._extension}"
+        return f"{self._build_prefix(league)}/{date.isoformat()}.{self._extension}"
 
 
 _StoreType = TypeVar("_StoreType")
