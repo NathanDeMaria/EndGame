@@ -61,7 +61,7 @@ async def update(location: str = "nfl.csv"):
     Update the nfl.csv
     """
     end_year = get_end_year(SEASON_END)
-    args = [[y] for y in range(1999, end_year + 1)]
+    args = [(y,) for y in range(1999, end_year + 1)]
     seasons = [s async for s in apply_in_parallel(get_season, args)]
     save_seasons(seasons, location)
 

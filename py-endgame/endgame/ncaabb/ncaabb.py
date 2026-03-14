@@ -80,7 +80,7 @@ async def get_seasons(gender: NcaabbGender) -> List[Season]:
     Get all seasons for a NCAABB
     """
     end_year = get_end_year(SEASON_END)
-    args = [[y, gender] for y in range(2001, end_year + 1)]
+    args = [(y, gender) for y in range(2001, end_year + 1)]
     return [s async for s in apply_in_parallel(get_ncaabb_season, args)]
 
 
@@ -122,7 +122,7 @@ async def get_ncaabb_season(
     trouble_days = []
     for day_param in day_params:
         try:
-            games += await _get_ncaabb_games(*day_param)
+            games += await get_ncaabb_games(*day_param)
         except aiohttp.client_exceptions.ClientResponseError:
             day, gender, group = day_param
             logger.warning(
@@ -186,7 +186,7 @@ def _date_range(start: date, end: date) -> List[date]:
     return [start + timedelta(days=offset) for offset in range(days)]
 
 
-async def _get_ncaabb_games(
+async def get_ncaabb_games(
     game_date: date, gender: NcaabbGender, group: NcaabbGroup
 ) -> List[Game]:
     logger.info("Getting NCAABB %s %s %s", gender.value, game_date, group.name)
@@ -240,10 +240,6 @@ def is_between_dates(
 
 
 async def get_ncaabb_spreads(day: date) -> AsyncIterator[Odds]:
-    regular_start = date(day.year, *REGULAR_SEASON_START)
-    regular_end = date(day.year + 1, *REGULAR_SEASON_END)
-    postseason_start = date(day.year + 1, *POST_SEASON_START)
-    postseason_end = date(day.year + 1, *SEASON_END)
     day_params = []
     for gender in NcaabbGender:
         if is_between_dates(day, REGULAR_SEASON_START, REGULAR_SEASON_END):

@@ -1,21 +1,28 @@
 import asyncio
 from collections.abc import Coroutine
-from typing import Any, Awaitable, TypeVar, Callable, Iterable, AsyncIterator
+from typing import TypeVar, Callable, Iterable, AsyncIterator
+from typing_extensions import TypeVarTuple
 
 
-# It'd be neat to also be able to match types between the callable
-# and the args passed in here...someday...
-ReturnType = TypeVar("ReturnType")
+_ArgTypes = TypeVarTuple("_ArgTypes")
+_ReturnType = TypeVar("_ReturnType")
 
 
 async def apply_in_parallel(
-    function: Callable[..., Coroutine[None, None, ReturnType]], args: Iterable[Any]
-) -> AsyncIterator[ReturnType]:
+    function: Callable[[*_ArgTypes], Coroutine[None, None, _ReturnType]],
+    args: Iterable[tuple[*_ArgTypes]],
+    max_parallel: int = 10,
+) -> AsyncIterator[_ReturnType]:
     """
     Run a list of tasks in parallel
     """
-    tasks: list[asyncio.Task[ReturnType]] = [
-        asyncio.create_task(function(*arg_set)) for arg_set in args
+    semaphore = asyncio.Semaphore(max_parallel)
+    async def _limited_task(arg_set):
+        async with semaphore:
+            return await function(*arg_set)
+    tasks: list[asyncio.Task[_ReturnType]] = [
+        asyncio.create_task(_limited_task(arg_set)) for arg_set in args
     ]
-    for task in tasks:
-        yield await task
+    results = await asyncio.gather(*tasks)
+    for task in results:
+        yield task
