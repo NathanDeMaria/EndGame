@@ -15,6 +15,7 @@ from endgame_aws import (
     save_data_to_s3,
     read_possessions,
     read_box_scores,
+    get_pbp_store,
 )
 from endgame_aws.io import S3NotFoundException, read_seasons
 
@@ -125,7 +126,9 @@ async def odds(day: str | None = None, time: str | None = None):
     odds = [o async for o in get_ncaabb_spreads(parsed_date)]
     parsed_time = time if time is not None else now.strftime("%H-%M")
     await save_data_to_s3(
-        _CONFIG.bucket, f"odds/ncaabb/{parsed_date}/{parsed_time}.json", json.dumps(odds).encode()
+        _CONFIG.bucket,
+        f"odds/ncaabb/{parsed_date}/{parsed_time}.json",
+        json.dumps(odds).encode(),
     )
 
 
@@ -133,12 +136,8 @@ async def plays(league: str, day: str | None = None) -> None:
     parsed_date = _parse_date(day)
     pbps = get_plays_for_day(parsed_date, NcaabbGender[league])
     all_plays = [plays async for plays in pbps]
-    body = json.dumps(all_plays).encode()
-    await save_data_to_s3(
-        _CONFIG.bucket,
-        f"plays/ncaabb/{league}/{parsed_date}.json",
-        body,
-    )
+    async with get_pbp_store() as store:
+        await store.save(all_plays, parsed_date, NcaabbGender[league])
     print(f"Saved pbp for {len(all_plays)} games for {league} on {parsed_date}.")
 
 

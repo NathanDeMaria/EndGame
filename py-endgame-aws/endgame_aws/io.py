@@ -44,7 +44,7 @@ async def save_csv_to_s3(data: list[dict], bucket: str, key: str):
 async def read_seasons(bucket: str, key: str) -> list[Season]:
     session = get_session()
     async with session.create_client("s3") as client:
-        raw = await _read_from_s3(bucket, key, client)
+        raw = await read_from_s3(bucket, key, client)
     return pickle.loads(raw)
 
 
@@ -67,7 +67,7 @@ async def _read_csv(
 ) -> AsyncIterator[_DataclassJsonType]:
     session = get_session()
     async with session.create_client("s3") as client:
-        raw = await _read_from_s3(bucket, key, client)
+        raw = await read_from_s3(bucket, key, client)
     with StringIO(raw.decode()) as read_stream:
         reader = DictReader(read_stream)
         for item in reader:
@@ -85,7 +85,7 @@ class S3NotFoundException(Exception):
     pass
 
 
-async def _read_from_s3(bucket: str, key: str, client) -> bytes:
+async def read_from_s3(bucket: str, key: str, client) -> bytes:
     try:
         response = await client.get_object(Bucket=bucket, Key=key)
     except ClientError as ex:
@@ -97,7 +97,7 @@ async def _read_from_s3(bucket: str, key: str, client) -> bytes:
         return await stream.read()
 
 
-async def _list_keys(bucket: str, prefix: str, client) -> AsyncIterator[str]:
+async def list_keys(bucket: str, prefix: str, client) -> AsyncIterator[str]:
     paginator = client.get_paginator("list_objects_v2")
     async for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
@@ -107,8 +107,8 @@ async def _list_keys(bucket: str, prefix: str, client) -> AsyncIterator[str]:
 async def read_all_odds(bucket: str, prefix: str) -> AsyncIterator[dict]:
     session = get_session()
     async with session.create_client("s3") as client:
-        odds_keys = _list_keys(bucket, prefix, client)
-        tasks = [_read_from_s3(bucket, key, client) async for key in odds_keys]
+        odds_keys = list_keys(bucket, prefix, client)
+        tasks = [read_from_s3(bucket, key, client) async for key in odds_keys]
         bodies = await asyncio.gather(*tasks)
         for body in bodies:
             parsed = json.loads(body.decode())
