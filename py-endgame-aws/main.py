@@ -2,7 +2,7 @@ import json
 from fire import Fire
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
-from endgame.ncaabb import NcaabbGender
+from endgame.ncaabb import NcaabbGender, get_plays_for_day
 from endgame.ncaabb.possession_side import PossessionSide
 from endgame.ncaabb.ncaabb import get_ncaabb_season, get_ncaabb_spreads, Season
 from endgame.ncaabb.matchup import logger, apply_in_parallel, get_possessions
@@ -113,13 +113,15 @@ async def box_scores(gender_name: str, year: int):
     )
 
 
+def _parse_date(date_str: str | None) -> date:
+    if date_str is None:
+        return datetime.now(tz=ZoneInfo("America/Chicago")).date()
+    return datetime.fromisoformat(date_str).date()
+
+
 async def odds(day: str | None = None, time: str | None = None):
     now = datetime.now(tz=ZoneInfo("America/Chicago"))
-    parsed_date = (
-        datetime.fromisoformat(day).date()
-        if day is not None
-        else now.date()
-    )
+    parsed_date = _parse_date(day)
     odds = [o async for o in get_ncaabb_spreads(parsed_date)]
     parsed_time = time if time is not None else now.strftime("%H-%M")
     await save_data_to_s3(
@@ -127,5 +129,18 @@ async def odds(day: str | None = None, time: str | None = None):
     )
 
 
+async def plays(league: str, day: str | None = None) -> None:
+    parsed_date = _parse_date(day)
+    pbps = get_plays_for_day(parsed_date, NcaabbGender[league])
+    all_plays = [plays async for plays in pbps]
+    body = json.dumps(all_plays).encode()
+    await save_data_to_s3(
+        _CONFIG.bucket,
+        f"plays/ncaabb/{league}/{parsed_date}.json",
+        body,
+    )
+    print(f"Saved pbp for {len(all_plays)} games for {league} on {parsed_date}.")
+
+
 if __name__ == "__main__":
-    Fire({"box_scores": box_scores, "odds": odds})
+    Fire({"box_scores": box_scores, "odds": odds, "plays": plays})
