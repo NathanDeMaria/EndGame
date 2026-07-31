@@ -7,6 +7,10 @@ from endgame.ncaabb.possession_side import PossessionSide
 from endgame.ncaabb.ncaabb import get_ncaabb_season, get_ncaabb_spreads, Season
 from endgame.ncaabb.matchup import logger, apply_in_parallel, get_possessions
 from endgame.ncaabb.box_score.all import get_season_box_scores
+from endgame.ncaafb import get_season as get_ncaafb_season
+from endgame.ncaafb import get_current_odds as get_ncaafb_current_odds
+from endgame.nfl.games import get_season as get_nfl_season
+from endgame.nfl.games import get_current_odds as get_nfl_current_odds
 from endgame_aws import (
     save_to_s3,
     save_csv_to_s3,
@@ -114,6 +118,16 @@ async def box_scores(gender_name: str, year: int):
     )
 
 
+async def nfl_games(year: int):
+    season = await get_nfl_season(year)
+    await save_to_s3([season], _CONFIG.bucket, f"seasons/{year}/nfl.pkl")
+
+
+async def ncaafb_games(year: int):
+    season = await get_ncaafb_season(year)
+    await save_to_s3([season], _CONFIG.bucket, f"seasons/{year}/ncaafb.pkl")
+
+
 def _parse_date(date_str: str | None) -> date:
     if date_str is None:
         return datetime.now(tz=ZoneInfo("America/Chicago")).date()
@@ -132,6 +146,28 @@ async def odds(day: str | None = None, time: str | None = None):
     )
 
 
+async def nfl_odds(time: str | None = None):
+    now = datetime.now(tz=ZoneInfo("America/Chicago"))
+    parsed_time = time if time is not None else now.strftime("%H-%M")
+    odds = [o async for o in get_nfl_current_odds()]
+    await save_data_to_s3(
+        _CONFIG.bucket,
+        f"odds/nfl/{now.date()}/{parsed_time}.json",
+        json.dumps(odds).encode(),
+    )
+
+
+async def ncaafb_odds(time: str | None = None):
+    now = datetime.now(tz=ZoneInfo("America/Chicago"))
+    parsed_time = time if time is not None else now.strftime("%H-%M")
+    odds = [o async for o in get_ncaafb_current_odds()]
+    await save_data_to_s3(
+        _CONFIG.bucket,
+        f"odds/ncaafb/{now.date()}/{parsed_time}.json",
+        json.dumps(odds).encode(),
+    )
+
+
 async def plays(league: str, day: str | None = None) -> None:
     parsed_date = _parse_date(day)
     pbps = get_plays_for_day(parsed_date, NcaabbGender[league])
@@ -142,4 +178,14 @@ async def plays(league: str, day: str | None = None) -> None:
 
 
 if __name__ == "__main__":
-    Fire({"box_scores": box_scores, "odds": odds, "plays": plays})
+    Fire(
+        {
+            "box_scores": box_scores,
+            "odds": odds,
+            "plays": plays,
+            "nfl_games": nfl_games,
+            "ncaafb_games": ncaafb_games,
+            "nfl_odds": nfl_odds,
+            "ncaafb_odds": ncaafb_odds,
+        }
+    )
