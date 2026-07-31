@@ -9,6 +9,18 @@ locals {
   # TODO: will need to pass in the year in the future
   # this locks on the date of deploy
   season_year = local.current_month < 8 ? tostring(local.current_year - 1) : tostring(local.current_year)
+
+  # ncaabb's `box_scores` command also pulls possessions/box scores, so it
+  # stays its own command instead of going through the generic `games`
+  # command that nfl/ncaafb use.
+  games_jobs = {
+    mens   = ["box_scores", "mens", local.season_year]
+    womens = ["box_scores", "womens", local.season_year]
+    nfl    = ["games", "nfl", local.season_year]
+    ncaafb = ["games", "ncaafb", local.season_year]
+  }
+
+  odds_leagues = ["ncaabb", "nfl", "ncaafb"]
 }
 
 # ------------------------------------------------------------------------------
@@ -17,96 +29,28 @@ locals {
 # ------------------------------------------------------------------------------
 # Scheduled Job Module(s)
 # ------------------------------------------------------------------------------
+module "daily_games" {
+  source   = "./modules/scheduled_job"
+  for_each = local.games_jobs
+
+  job_name            = "daily-games-${each.key}"
+  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  command             = each.value
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  schedule_expression = var.schedule_expression
+  schedule_timezone   = var.schedule_timezone
+}
+
 module "odds" {
-  source = "./modules/scheduled_job"
+  source   = "./modules/scheduled_job"
+  for_each = toset(local.odds_leagues)
 
-  job_name            = "odds"
+  job_name            = "odds-${each.key}"
   image               = "${var.ecr_repository_url}:${var.image_tag}"
-  command             = ["odds"]
-  execution_role_arn  = aws_iam_role.batch_execution_role.arn
-  job_role_arn        = aws_iam_role.batch_job_role.arn
-  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
-  job_queue_arn       = data.aws_batch_job_queue.this.arn
-  schedule_expression = "cron(0 10-22 * * ? *)"
-  schedule_timezone   = var.schedule_timezone
-}
-
-module "daily_games_mens" {
-  source = "./modules/scheduled_job"
-
-  job_name            = "daily-games-mens"
-  image               = "${var.ecr_repository_url}:${var.image_tag}"
-  command             = ["box_scores", "mens", local.season_year]
-  execution_role_arn  = aws_iam_role.batch_execution_role.arn
-  job_role_arn        = aws_iam_role.batch_job_role.arn
-  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
-  job_queue_arn       = data.aws_batch_job_queue.this.arn
-  schedule_expression = var.schedule_expression
-  schedule_timezone   = var.schedule_timezone
-}
-
-module "daily_games_womens" {
-  source = "./modules/scheduled_job"
-
-  job_name            = "daily-games-womens"
-  image               = "${var.ecr_repository_url}:${var.image_tag}"
-  command             = ["box_scores", "womens", local.season_year]
-  execution_role_arn  = aws_iam_role.batch_execution_role.arn
-  job_role_arn        = aws_iam_role.batch_job_role.arn
-  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
-  job_queue_arn       = data.aws_batch_job_queue.this.arn
-  schedule_expression = var.schedule_expression
-  schedule_timezone   = var.schedule_timezone
-}
-
-module "daily_games_nfl" {
-  source = "./modules/scheduled_job"
-
-  job_name            = "daily-games-nfl"
-  image               = "${var.ecr_repository_url}:${var.image_tag}"
-  command             = ["nfl_games", local.season_year]
-  execution_role_arn  = aws_iam_role.batch_execution_role.arn
-  job_role_arn        = aws_iam_role.batch_job_role.arn
-  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
-  job_queue_arn       = data.aws_batch_job_queue.this.arn
-  schedule_expression = var.schedule_expression
-  schedule_timezone   = var.schedule_timezone
-}
-
-module "daily_games_ncaafb" {
-  source = "./modules/scheduled_job"
-
-  job_name            = "daily-games-ncaafb"
-  image               = "${var.ecr_repository_url}:${var.image_tag}"
-  command             = ["ncaafb_games", local.season_year]
-  execution_role_arn  = aws_iam_role.batch_execution_role.arn
-  job_role_arn        = aws_iam_role.batch_job_role.arn
-  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
-  job_queue_arn       = data.aws_batch_job_queue.this.arn
-  schedule_expression = var.schedule_expression
-  schedule_timezone   = var.schedule_timezone
-}
-
-module "odds_nfl" {
-  source = "./modules/scheduled_job"
-
-  job_name            = "odds-nfl"
-  image               = "${var.ecr_repository_url}:${var.image_tag}"
-  command             = ["nfl_odds"]
-  execution_role_arn  = aws_iam_role.batch_execution_role.arn
-  job_role_arn        = aws_iam_role.batch_job_role.arn
-  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
-  job_queue_arn       = data.aws_batch_job_queue.this.arn
-  schedule_expression = "cron(0 10-22 * * ? *)"
-  schedule_timezone   = var.schedule_timezone
-}
-
-module "odds_ncaafb" {
-  source = "./modules/scheduled_job"
-
-  job_name            = "odds-ncaafb"
-  image               = "${var.ecr_repository_url}:${var.image_tag}"
-  command             = ["ncaafb_odds"]
+  command             = ["odds", each.key]
   execution_role_arn  = aws_iam_role.batch_execution_role.arn
   job_role_arn        = aws_iam_role.batch_job_role.arn
   scheduler_role_arn  = aws_iam_role.scheduler_role.arn
