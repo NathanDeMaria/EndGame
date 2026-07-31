@@ -1,7 +1,10 @@
 import json
+from dataclasses import dataclass
+from typing import Awaitable, Callable, AsyncIterator
 from fire import Fire
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
+from endgame.espn_odds import Odds as EspnOdds
 from endgame.ncaabb import NcaabbGender, get_plays_for_day
 from endgame.ncaabb.possession_side import PossessionSide
 from endgame.ncaabb.ncaabb import get_ncaabb_season, get_ncaabb_spreads, Season
@@ -118,14 +121,18 @@ async def box_scores(gender_name: str, year: int):
     )
 
 
-async def nfl_games(year: int):
-    season = await get_nfl_season(year)
-    await save_to_s3([season], _CONFIG.bucket, f"seasons/{year}/nfl.pkl")
+# Leagues whose games are a single "get the season, save it" pull.
+# ncaabb isn't here: its `box_scores` command also pulls possessions/box
+# scores, so it stays a separate, bigger pipeline.
+_GAMES_LEAGUES: dict[str, Callable[[int], Awaitable[Season]]] = {
+    "nfl": get_nfl_season,
+    "ncaafb": get_ncaafb_season,
+}
 
 
-async def ncaafb_games(year: int):
-    season = await get_ncaafb_season(year)
-    await save_to_s3([season], _CONFIG.bucket, f"seasons/{year}/ncaafb.pkl")
+async def games(league: str, year: int) -> None:
+    season = await _GAMES_LEAGUES[league](year)
+    await save_to_s3([season], _CONFIG.bucket, f"seasons/{year}/{league}.pkl")
 
 
 def _parse_date(date_str: str | None) -> date:
@@ -134,37 +141,29 @@ def _parse_date(date_str: str | None) -> date:
     return datetime.fromisoformat(date_str).date()
 
 
-async def odds(day: str | None = None, time: str | None = None):
+@dataclass
+class _OddsLeague:
+    # `day` is only meaningful for ncaabb, which is scheduled by day rather
+    # than by week; nfl/ncaafb just return whatever ESPN calls "this week".
+    get_odds: Callable[[date], AsyncIterator[EspnOdds]]
+
+
+_ODDS_LEAGUES: dict[str, _OddsLeague] = {
+    "ncaabb": _OddsLeague(get_odds=get_ncaabb_spreads),
+    "nfl": _OddsLeague(get_odds=lambda _day: get_nfl_current_odds()),
+    "ncaafb": _OddsLeague(get_odds=lambda _day: get_ncaafb_current_odds()),
+}
+
+
+async def odds(league: str, day: str | None = None, time: str | None = None) -> None:
     now = datetime.now(tz=ZoneInfo("America/Chicago"))
     parsed_date = _parse_date(day)
-    odds = [o async for o in get_ncaabb_spreads(parsed_date)]
     parsed_time = time if time is not None else now.strftime("%H-%M")
+    league_odds = [o async for o in _ODDS_LEAGUES[league].get_odds(parsed_date)]
     await save_data_to_s3(
         _CONFIG.bucket,
-        f"odds/ncaabb/{parsed_date}/{parsed_time}.json",
-        json.dumps(odds).encode(),
-    )
-
-
-async def nfl_odds(time: str | None = None):
-    now = datetime.now(tz=ZoneInfo("America/Chicago"))
-    parsed_time = time if time is not None else now.strftime("%H-%M")
-    odds = [o async for o in get_nfl_current_odds()]
-    await save_data_to_s3(
-        _CONFIG.bucket,
-        f"odds/nfl/{now.date()}/{parsed_time}.json",
-        json.dumps(odds).encode(),
-    )
-
-
-async def ncaafb_odds(time: str | None = None):
-    now = datetime.now(tz=ZoneInfo("America/Chicago"))
-    parsed_time = time if time is not None else now.strftime("%H-%M")
-    odds = [o async for o in get_ncaafb_current_odds()]
-    await save_data_to_s3(
-        _CONFIG.bucket,
-        f"odds/ncaafb/{now.date()}/{parsed_time}.json",
-        json.dumps(odds).encode(),
+        f"odds/{league}/{parsed_date}/{parsed_time}.json",
+        json.dumps(league_odds).encode(),
     )
 
 
@@ -181,11 +180,8 @@ if __name__ == "__main__":
     Fire(
         {
             "box_scores": box_scores,
+            "games": games,
             "odds": odds,
             "plays": plays,
-            "nfl_games": nfl_games,
-            "ncaafb_games": ncaafb_games,
-            "nfl_odds": nfl_odds,
-            "ncaafb_odds": ncaafb_odds,
         }
     )
