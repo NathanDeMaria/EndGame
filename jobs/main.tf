@@ -59,6 +59,62 @@ module "daily_games_womens" {
   schedule_timezone   = var.schedule_timezone
 }
 
+module "daily_games_nfl" {
+  source = "./modules/scheduled_job"
+
+  job_name            = "daily-games-nfl"
+  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  command             = ["nfl_games", local.season_year]
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  schedule_expression = var.schedule_expression
+  schedule_timezone   = var.schedule_timezone
+}
+
+module "daily_games_ncaafb" {
+  source = "./modules/scheduled_job"
+
+  job_name            = "daily-games-ncaafb"
+  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  command             = ["ncaafb_games", local.season_year]
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  schedule_expression = var.schedule_expression
+  schedule_timezone   = var.schedule_timezone
+}
+
+module "odds_nfl" {
+  source = "./modules/scheduled_job"
+
+  job_name            = "odds-nfl"
+  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  command             = ["nfl_odds"]
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  schedule_expression = "cron(0 10-22 * * ? *)"
+  schedule_timezone   = var.schedule_timezone
+}
+
+module "odds_ncaafb" {
+  source = "./modules/scheduled_job"
+
+  job_name            = "odds-ncaafb"
+  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  command             = ["ncaafb_odds"]
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  schedule_expression = "cron(0 10-22 * * ? *)"
+  schedule_timezone   = var.schedule_timezone
+}
+
 # ------------------------------------------------------------------------------
 # IAM Roles for Batch
 # ------------------------------------------------------------------------------
