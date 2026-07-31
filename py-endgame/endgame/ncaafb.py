@@ -1,13 +1,14 @@
 from datetime import datetime
 from itertools import groupby
 from logging import getLogger
-from typing import List, Iterator
+from typing import List, Iterator, AsyncIterator
 import aiohttp
 
 from .async_tools import apply_in_parallel
 from .date import get_end_year
 from .types import Game, Week, Season, WeekParams, NcaaFbGroup, SeasonType
 from .espn_games import get_games, save_seasons
+from .espn_odds import Odds, get_odds
 from .season_cache import SeasonCache
 from .web import RequestParameters
 
@@ -74,6 +75,18 @@ async def get_season(year: int) -> Season:
         cache.save_to_cache(season)
 
     return season
+
+
+async def get_current_odds() -> AsyncIterator[Odds]:
+    """
+    Get odds for whatever week ESPN currently considers "this week", FBS only
+    (betting markets don't really cover FCS/D2/D3).
+    """
+    parameters: RequestParameters = dict(
+        lang="en", region="us", groups=NcaaFbGroup.fbs.value
+    )
+    async for odd in get_odds(BASE_URL, parameters):
+        yield odd
 
 
 def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:

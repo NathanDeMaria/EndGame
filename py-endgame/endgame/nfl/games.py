@@ -1,9 +1,11 @@
 from datetime import datetime
 from logging import getLogger
+from typing import AsyncIterator
 
 from endgame.async_tools import apply_in_parallel
 from endgame.date import get_end_year
 from endgame.espn_games import get_games, save_seasons
+from endgame.espn_odds import Odds, get_odds
 from endgame.season_cache import SeasonCache
 from endgame.types import Game, Week, Season, SeasonType
 from endgame.web import RequestParameters
@@ -110,6 +112,20 @@ async def _get_week(season: int, week: int, season_type: SeasonType) -> Week:
     if season_type == SeasonType.post:
         week += N_REGULAR_WEEKS
     return Week(games, week)
+
+
+async def get_current_odds() -> AsyncIterator[Odds]:
+    """
+    Get odds for whatever week ESPN currently considers "this week".
+
+    Meant to be called periodically during the season, same idea as
+    NCAABB's day-based odds pulling, but NFL scoreboards are organized
+    by week rather than day, and ESPN defaults to the current week when
+    no explicit week/season params are passed.
+    """
+    parameters: RequestParameters = dict(lang="en", region="us")
+    async for odd in get_odds(BASE_URL, parameters):
+        yield odd
 
 
 def _move_teams(game: Game) -> Game:
