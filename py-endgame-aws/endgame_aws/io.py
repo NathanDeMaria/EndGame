@@ -104,6 +104,17 @@ async def list_keys(bucket: str, prefix: str, client) -> AsyncIterator[str]:
             yield obj["Key"]
 
 
+async def list_all_keys(bucket: str, prefix: str) -> AsyncIterator[str]:
+    """
+    Same as list_keys, but creates its own client so callers outside this
+    package don't need to reach into aiobotocore themselves.
+    """
+    session = get_session()
+    async with session.create_client("s3") as client:
+        async for key in list_keys(bucket, prefix, client):
+            yield key
+
+
 async def read_all_odds(bucket: str, prefix: str) -> AsyncIterator[dict]:
     session = get_session()
     async with session.create_client("s3") as client:
