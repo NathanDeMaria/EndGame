@@ -1,6 +1,5 @@
 from .teams import NflTeam
 
-
 # Cities, as referenced by footballlocks.com
 CITIES = {
     "Arizona": NflTeam.cardinals,

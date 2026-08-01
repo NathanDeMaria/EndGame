@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import NamedTuple, Optional, List, Dict
+from typing import Dict, List, NamedTuple, Optional
 
 
 class Game(NamedTuple):

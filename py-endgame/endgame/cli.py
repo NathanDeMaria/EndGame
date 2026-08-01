@@ -1,14 +1,16 @@
 import asyncio
+
 from fire import Fire
 
-from .nfl import update, save_coaches, save_spreads
-from .ncaafb import update as update_ncaafb
 from .ncaabb import (
-    update as update_ncaabb,
     NcaabbGender,
-    save_possessions,
     save_box_scores,
 )
+from .ncaabb import (
+    update as update_ncaabb,
+)
+from .ncaafb import update as update_ncaafb
+from .nfl import save_coaches, save_spreads, update
 
 
 class Main:

@@ -1,5 +1,6 @@
 import datetime
 import json
+from contextlib import asynccontextmanager
 from typing import (
     Any,
     AsyncContextManager,
@@ -9,13 +10,12 @@ from typing import (
     Sequence,
     TypeVar,
 )
-from contextlib import asynccontextmanager
 
 from aiobotocore.session import get_session
 from endgame.ncaabb import NcaabbGender
 
-from .io import list_keys, save_data_to_s3, read_from_s3
 from .config import Config
+from .io import list_keys, read_from_s3, save_data_to_s3
 
 
 class _DatedStore[_StoreType]:

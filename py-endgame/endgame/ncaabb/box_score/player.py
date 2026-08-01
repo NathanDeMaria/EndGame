@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
+
 from dataclasses_json import DataClassJsonMixin
 
 from ..gender import NcaabbGender
-
 
 # Parse an item from the box score table
 # into any relevant stats

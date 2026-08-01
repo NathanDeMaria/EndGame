@@ -1,28 +1,30 @@
 import json
 from dataclasses import dataclass
-from typing import Awaitable, Callable, AsyncIterator
-from fire import Fire
 from datetime import date, datetime
+from typing import AsyncIterator, Awaitable, Callable
 from zoneinfo import ZoneInfo
+
 from endgame.espn_odds import Odds as EspnOdds
 from endgame.ncaabb import NcaabbGender, get_plays_for_day
-from endgame.ncaabb.possession_side import PossessionSide
-from endgame.ncaabb.ncaabb import get_ncaabb_season, get_ncaabb_spreads, Season
-from endgame.ncaabb.matchup import logger, apply_in_parallel, get_possessions
 from endgame.ncaabb.box_score.all import get_season_box_scores
-from endgame.ncaafb import get_season as get_ncaafb_season
+from endgame.ncaabb.matchup import apply_in_parallel, get_possessions, logger
+from endgame.ncaabb.ncaabb import Season, get_ncaabb_season, get_ncaabb_spreads
+from endgame.ncaabb.possession_side import PossessionSide
 from endgame.ncaafb import get_current_odds as get_ncaafb_current_odds
-from endgame.nfl.games import get_season as get_nfl_season
+from endgame.ncaafb import get_season as get_ncaafb_season
 from endgame.nfl.games import get_current_odds as get_nfl_current_odds
+from endgame.nfl.games import get_season as get_nfl_season
+from fire import Fire
+
 from endgame_aws import (
-    save_to_s3,
-    save_csv_to_s3,
     Config,
     FlattenedBoxScore,
-    save_data_to_s3,
-    read_possessions,
-    read_box_scores,
     get_pbp_store,
+    read_box_scores,
+    read_possessions,
+    save_csv_to_s3,
+    save_data_to_s3,
+    save_to_s3,
 )
 from endgame_aws.io import S3NotFoundException, read_seasons
 

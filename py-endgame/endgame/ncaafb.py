@@ -1,17 +1,17 @@
 from datetime import datetime
 from itertools import groupby
 from logging import getLogger
-from typing import List, Iterator, AsyncIterator
+from typing import AsyncIterator, Iterator, List
+
 import aiohttp
 
 from .async_tools import apply_in_parallel
 from .date import get_end_year
-from .types import Game, Week, Season, WeekParams, NcaaFbGroup, SeasonType
 from .espn_games import get_games, save_seasons
 from .espn_odds import Odds, get_odds
 from .season_cache import SeasonCache
+from .types import Game, NcaaFbGroup, Season, SeasonType, Week, WeekParams
 from .web import RequestParameters
-
 
 logger = getLogger(__name__)
 
@@ -93,7 +93,9 @@ def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:
     # Removes duplicates that come from when teams play across divisions
     # Assumption: those still show up under the same week number
     # ...I'm not totally sure that's the case
-    key = lambda w: w.number
+    def key(w: Week) -> int:
+        return w.number
+
     for number, matched_weeks in groupby(sorted(weeks, key=key), key=key):
         games: List[Game] = []
         for week in matched_weeks:

@@ -7,11 +7,10 @@ from endgame.date import get_end_year
 from endgame.espn_games import get_games, save_seasons
 from endgame.espn_odds import Odds, get_odds
 from endgame.season_cache import SeasonCache
-from endgame.types import Game, Week, Season, SeasonType
+from endgame.types import Game, Season, SeasonType, Week
 from endgame.web import RequestParameters
 
 from .teams import NflTeam
-
 
 logger = getLogger(__name__)
 
