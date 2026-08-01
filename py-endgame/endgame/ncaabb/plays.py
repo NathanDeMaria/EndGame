@@ -15,7 +15,9 @@ class _PlayByPlay(TypedDict):
     plays: list[dict]
 
 
-async def get_plays_for_day(date: datetime.date, league: NcaabbGender) -> AsyncIterator[_PlayByPlay]:
+async def get_plays_for_day(
+    date: datetime.date, league: NcaabbGender
+) -> AsyncIterator[_PlayByPlay]:
     for group in NcaabbGroup:
         games = await get_ncaabb_games(date, league, group)
         args = [(game.game_id, league) for game in games]

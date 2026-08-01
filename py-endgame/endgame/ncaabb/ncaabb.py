@@ -1,22 +1,21 @@
 from collections import defaultdict
-from datetime import date, timedelta, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
 from itertools import groupby
 from logging import getLogger
-from typing import List, NamedTuple, AsyncIterator, DefaultDict
+from typing import AsyncIterator, DefaultDict, List, NamedTuple
+
 import aiohttp
 
 from ..async_tools import apply_in_parallel
 from ..constants import ESPN_SPORTS_API_BASE
 from ..date import get_end_year
-from ..types import Game, Season, Week
 from ..espn_games import get_games, save_seasons
-from ..espn_odds import get_odds, Odds
+from ..espn_odds import Odds, get_odds
 from ..season_cache import SeasonCache
+from ..types import Game, Season, Week
 from ..web import RequestParameters
-
 from .gender import NcaabbGender
-
 
 logger = getLogger(__name__)
 
@@ -199,8 +198,8 @@ async def get_ncaabb_games(
         groups=group.value,
     )
     games = await get_games(NCAABB_SCOREBOARD.format(gender.name), parameters)
-    # Filtering thanks to Montana State Bobcats at Northern Arizona Lumberjacks on 2003-02-28
-    # and a bunch of NCAAWBB games
+    # Filtering thanks to Montana State Bobcats at Northern Arizona
+    # Lumberjacks on 2003-02-28 and a bunch of NCAAWBB games
     return [g for g in games if g.home_score > 0 or g.away_score > 0]
 
 

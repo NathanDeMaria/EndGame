@@ -7,14 +7,47 @@ on:
     branches: [ "*" ]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        package: [py-endgame, py-endgame-aws]
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install poetry
+      run: pip install poetry
+    - name: Install dependencies
+      working-directory: ${{ matrix.package }}
+      run: poetry install
+    - name: ruff format --check
+      working-directory: ${{ matrix.package }}
+      run: poetry run ruff format --check .
+    - name: ruff check
+      working-directory: ${{ matrix.package }}
+      run: poetry run ruff check .
+    - name: ty check
+      working-directory: ${{ matrix.package }}
+      # Not blocking yet: there's a real pre-existing backlog of type
+      # errors (some already deliberately `# type: ignore`d under mypy)
+      # that needs triage before this can gate the push. Still runs so
+      # it shows up in the log.
+      run: poetry run ty check .
+      continue-on-error: true
+
   make-push:
+    needs: lint
     runs-on: ubuntu-latest
 
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       IMAGE_URL: ${{ secrets.IMAGE_URL }}
-    
+
     steps:
     - uses: actions/checkout@v3
       with:

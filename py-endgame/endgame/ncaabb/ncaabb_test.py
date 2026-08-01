@@ -1,15 +1,16 @@
 from datetime import date, datetime
+
 import pytest
 
 from .ncaabb import (
-    is_between_dates,
-    Game,
-    Season,
-    Week,
-    merge_seasons,
     DayParams,
+    Game,
     NcaabbGender,
     NcaabbGroup,
+    Season,
+    Week,
+    is_between_dates,
+    merge_seasons,
 )
 
 

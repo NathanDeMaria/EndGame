@@ -1,16 +1,15 @@
-import aiohttp
 from csv import DictWriter
 from logging import getLogger
 from typing import Dict, List, Optional, Tuple
+
+import aiohttp
 from bs4 import BeautifulSoup, Tag
 
 from ..async_tools import apply_in_parallel
 from ..web import get
-
-from .ncaabb import get_seasons
 from .gender import NcaabbGender
+from .ncaabb import get_seasons
 from .possession_side import PossessionSide
-
 
 logger = getLogger(__name__)
 
@@ -244,9 +243,9 @@ def estimate_possession_results(
     one_point = round(one_point)
     two_point = round(two_point)
 
-    assert (
-        abs(zero_points + one_point + two_point + three_point - possessions) <= 2
-    ), "Estimates must add up to the number of possessions (or at least close)"
+    assert abs(zero_points + one_point + two_point + three_point - possessions) <= 2, (
+        "Estimates must add up to the number of possessions (or at least close)"
+    )
     return zero_points, one_point, two_point, three_point
 
 

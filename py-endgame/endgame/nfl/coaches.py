@@ -1,10 +1,11 @@
 from csv import DictWriter
 from dataclasses import dataclass
 from typing import AsyncIterable, Dict, Tuple, Union
+
 from bs4 import BeautifulSoup
 
 from ..web import get
-from .teams import NflTeam, PRO_FOOTBALL_REFERENCE_SHORT_NAMES
+from .teams import PRO_FOOTBALL_REFERENCE_SHORT_NAMES, NflTeam
 
 URL_FORMAT = "https://www.pro-football-reference.com/years/{year}/coaches.htm"
 

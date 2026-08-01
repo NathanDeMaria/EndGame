@@ -1,13 +1,13 @@
-from csv import DictWriter
 import re
+from csv import DictWriter
 from dataclasses import dataclass
 from typing import AsyncIterable, Dict, Iterable, Optional, Tuple
+
 from bs4 import BeautifulSoup, Tag
 
+from ..web import get
 from .cities import CITIES
 from .teams import NflTeam
-from ..web import get
-
 
 URL_FORMAT = "http://www.footballlocks.com/nfl_point_spreads_{week}.shtml"
 

@@ -1,15 +1,16 @@
-import pickle
-import json
 import asyncio
-from csv import DictWriter, DictReader
+import json
+import pickle
+from csv import DictReader, DictWriter
 from dataclasses import dataclass
 from io import StringIO
 from typing import AsyncIterator, Type, TypeVar
+
 from aiobotocore.session import get_session
 from botocore.exceptions import ClientError
 from dataclasses_json import DataClassJsonMixin
-from endgame.ncaabb.ncaabb import Season
 from endgame.ncaabb.box_score import PlayerBoxScore
+from endgame.ncaabb.ncaabb import Season
 from endgame.ncaabb.possession_side import PossessionSide
 
 

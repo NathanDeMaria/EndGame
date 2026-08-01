@@ -1,9 +1,11 @@
 """
 Parsing games from the ESPN API
 """
+
 import json
 from csv import DictWriter
-from typing import Dict, NamedTuple, List, Optional
+from typing import Dict, List, NamedTuple, Optional
+
 from dateutil import parser
 
 from .types import Game, Season

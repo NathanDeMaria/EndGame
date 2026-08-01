@@ -1,7 +1,7 @@
 from datetime import date
 
-from .plays import get_plays, get_plays_for_day
 from .ncaabb import NcaabbGender
+from .plays import get_plays, get_plays_for_day
 
 
 async def test_plays() -> None:

@@ -1,10 +1,10 @@
 from pathlib import Path
-from typing import Generic, List, Optional, TypeVar, Type
+from typing import Generic, List, Optional, Type, TypeVar
+
 import aiofiles
 from dataclasses_json import DataClassJsonMixin
 
 from .config import CONFIG
-
 
 T = TypeVar("T", bound=DataClassJsonMixin)
 
@@ -17,9 +17,9 @@ class DiskCache(Generic[T]):
     def __init__(self, cacheable_class: Type[T], unique_attributes: List[str]):
         self._cacheable_class = cacheable_class
         self._unique_attribues = unique_attributes
-        assert all(
-            a in cacheable_class.__annotations__ for a in unique_attributes
-        ), "Invalid attributes"
+        assert all(a in cacheable_class.__annotations__ for a in unique_attributes), (
+            "Invalid attributes"
+        )
 
     async def save_to_cache(self, item: T):
         """
@@ -39,9 +39,9 @@ class DiskCache(Generic[T]):
         Get an item from the cache given its unique attributes
         Return None on cache miss
         """
-        assert set(kwargs.keys()) == set(
-            self._unique_attribues
-        ), "Invalid attributes used to check cache"
+        assert set(kwargs.keys()) == set(self._unique_attribues), (
+            "Invalid attributes used to check cache"
+        )
         path = self._build_cache_path(**kwargs)
         if not path.is_file():
             return None

@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from logging import getLogger
-from typing import Iterable, Iterator, List, Optional, AsyncIterator
+from typing import AsyncIterator, Iterable, Iterator, List, Optional
+
+from aiohttp.client_exceptions import ClientResponseError
 from bs4 import BeautifulSoup, Tag
 from dataclasses_json import DataClassJsonMixin
-from aiohttp.client_exceptions import ClientResponseError
 
 from ...async_tools import apply_in_parallel
 from ...cacheable import DiskCache
@@ -11,7 +12,7 @@ from ...types import Season
 from ...web import get
 from ..gender import NcaabbGender
 from ..ncaabb import get_seasons
-from .player import RawPlayer, PlayerBoxScore, parse_player
+from .player import PlayerBoxScore, RawPlayer, parse_player
 
 logger = getLogger(__name__)
 

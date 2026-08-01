@@ -1,14 +1,14 @@
 import asyncio
-import re
 import random
+import re
 from logging import getLogger
 from pathlib import Path
-from typing import Dict, Union, Optional
+from typing import Dict, Optional, Union
+
 import aiofiles
 import aiohttp
 
 from .config import CONFIG
-
 
 logger = getLogger(__name__)
 
@@ -83,7 +83,7 @@ async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
             param_string = _build_param_string(parameters)
             full_url = f"{url}?{param_string}" if param_string else url
             logger.warning(
-                "Struggling to get %s. Error: %s. Attempt number %d. Sleeping for %.02f",
+                "Struggling to get %s. Error: %s. Attempt %d. Sleeping for %.02f",
                 full_url,
                 _get_error_message(error),
                 i + 1,
@@ -99,7 +99,7 @@ def _get_error_message(
         aiohttp.client_exceptions.ClientConnectorError,
         aiohttp.client_exceptions.ClientPayloadError,
         aiohttp.client_exceptions.ServerDisconnectedError,
-    ]
+    ],
 ) -> str:
     if isinstance(error, aiohttp.client_exceptions.ClientResponseError):
         return f"Status code: {error.status}"
