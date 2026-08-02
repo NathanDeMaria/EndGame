@@ -75,6 +75,10 @@ async def box_scores(gender_name: str, year: int):
     season = await get_ncaabb_season(year, gender, season_so_far)
     await save_to_s3([season], _CONFIG.bucket, _build_season_key(year, gender))
 
+    has_games = any(game for week in season.weeks for game in week.games)
+    if not has_games:
+        logger.warning("No games found (yet) for %s %d", gender.name, year)
+
     rows_so_far = await _load_possessions(_CONFIG.bucket, year, gender)
     rows: list[dict] = [r.to_dict() for r in rows_so_far]
     pulled_game_ids = {side.game_id for side in rows_so_far}
