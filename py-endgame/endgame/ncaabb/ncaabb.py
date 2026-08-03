@@ -157,9 +157,11 @@ def merge_seasons(seasons: List[Season]) -> Season:
             for game in week.games:
                 # If a game showed up multiple times, keep the latest version
                 weeks_games[week.number][game.game_id] = game
+    # Sort both levels: dicts preserve insertion order, which here is
+    # "whatever order the seasons being merged happened to be in".
     weeks = [
-        Week(list(week_games.values()), week_num)
-        for week_num, week_games in weeks_games.items()
+        Week(sorted(week_games.values(), key=lambda g: g.date), week_num)
+        for week_num, week_games in sorted(weeks_games.items())
     ]
 
     # Merge trouble params
