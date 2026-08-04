@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import AsyncIterator, Awaitable, Callable
@@ -8,7 +9,12 @@ from endgame.espn_odds import Odds as EspnOdds
 from endgame.ncaabb import NcaabbGender, get_plays_for_day
 from endgame.ncaabb.box_score.all import get_season_box_scores
 from endgame.ncaabb.matchup import apply_in_parallel, get_possessions, logger
-from endgame.ncaabb.ncaabb import Season, get_ncaabb_season, get_ncaabb_spreads
+from endgame.ncaabb.ncaabb import (
+    Season,
+    get_ncaabb_season,
+    get_ncaabb_spreads,
+    group_games_into_weeks,
+)
 from endgame.ncaabb.possession_side import PossessionSide
 from endgame.ncaafb import get_current_odds as get_ncaafb_current_odds
 from endgame.ncaafb import get_season as get_ncaafb_season
@@ -20,6 +26,7 @@ from endgame_aws import (
     Config,
     FlattenedBoxScore,
     get_pbp_store,
+    list_all_keys,
     read_box_scores,
     read_possessions,
     save_csv_to_s3,
@@ -141,6 +148,60 @@ async def games(league: str, year: int) -> None:
     await save_to_s3([season], _CONFIG.bucket, f"seasons/{year}/{league}.pkl")
 
 
+_NCAABB_SEASON_KEY_RE = re.compile(r"^seasons/(\d+)/(mens|womens)\.pkl$")
+
+
+async def regroup_ncaabb_weeks(dry_run: bool = True) -> None:
+    """
+    Rebuild the week grouping on already-saved ncaabb seasons.
+
+    Weeks used to be numbered by position among whatever games a run
+    happened to fetch, so an incremental pull restarted at 1 and merged its
+    games into the season's opening weeks. Regrouping from game dates fixes
+    the numbering and puts the games back in the right weeks.
+
+    Only touches ncaabb: nfl/ncaafb week numbers come from ESPN.
+
+    Defaults to a dry run -- pass --dry_run=False to actually write.
+    """
+    async for key in list_all_keys(_CONFIG.bucket, "seasons/"):
+        match = _NCAABB_SEASON_KEY_RE.match(key)
+        if match is None:
+            continue
+        year = int(match.group(1))
+
+        seasons = await read_seasons(_CONFIG.bucket, key)
+        regrouped = [
+            Season(
+                group_games_into_weeks(
+                    (game for week in season.weeks for game in week.games), year
+                ),
+                season.year,
+                season.trouble_params,
+            )
+            for season in seasons
+        ]
+
+        before = [len(s.weeks) for s in seasons]
+        after = [len(s.weeks) for s in regrouped]
+        if before == after and all(
+            [w.number for w in old.weeks] == [w.number for w in new.weeks]
+            for old, new in zip(seasons, regrouped)
+        ):
+            logger.info("%s already grouped correctly", key)
+            continue
+
+        logger.info(
+            "%s: %s weeks -> %s weeks%s",
+            key,
+            before,
+            after,
+            " (dry run)" if dry_run else "",
+        )
+        if not dry_run:
+            await save_to_s3(regrouped, _CONFIG.bucket, key)
+
+
 def _parse_date(date_str: str | None) -> date:
     if date_str is None:
         return datetime.now(tz=ZoneInfo("America/Chicago")).date()
@@ -189,5 +250,6 @@ if __name__ == "__main__":
             "games": games,
             "odds": odds,
             "plays": plays,
+            "regroup_ncaabb_weeks": regroup_ncaabb_weeks,
         }
     )
