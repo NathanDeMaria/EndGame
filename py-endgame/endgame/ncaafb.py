@@ -100,7 +100,10 @@ def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:
         games: List[Game] = []
         for week in matched_weeks:
             games += week.games
-        yield Week(list(set(games)), number)
+        # set() to drop the cross-division duplicates, then sort so the
+        # week's games don't come out in an arbitrary (and run-to-run
+        # unstable) hash order.
+        yield Week(sorted(set(games), key=lambda g: g.date), number)
 
 
 async def _get_week(
@@ -123,7 +126,7 @@ async def _get_week(
     games = list(map(_rename_teams, games))
     if season_type == SeasonType.post:
         week += N_REGULAR_WEEKS
-    return Week(games, week)
+    return Week(sorted(games, key=lambda g: g.date), week)
 
 
 def _rename_teams(game: Game) -> Game:

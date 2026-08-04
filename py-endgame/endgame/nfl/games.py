@@ -110,7 +110,7 @@ async def _get_week(season: int, week: int, season_type: SeasonType) -> Week:
 
     if season_type == SeasonType.post:
         week += N_REGULAR_WEEKS
-    return Week(games, week)
+    return Week(sorted(games, key=lambda g: g.date), week)
 
 
 async def get_current_odds() -> AsyncIterator[Odds]:
