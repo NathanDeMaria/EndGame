@@ -9,6 +9,7 @@ from .ncaabb import (
     NcaabbGroup,
     Season,
     Week,
+    group_games_into_weeks,
     is_between_dates,
     merge_seasons,
 )
@@ -33,18 +34,20 @@ def test_is_between_dates(
 
 def test_merge_seasons() -> None:
     year = 1989
-    g1 = Game("A", 10, "B", 5, False, True, datetime(year, 1, 1), "1")
-    g2 = Game("C", 20, "D", 15, False, True, datetime(year, 1, 1), "2")
+    # Week numbers come from the date now, so these have to be inside the
+    # season they're labelled with: the 1989 season starts Nov 1989.
+    g1 = Game("A", 10, "B", 5, False, True, datetime(year, 11, 1), "1")
+    g2 = Game("C", 20, "D", 15, False, True, datetime(year, 11, 1), "2")
 
     # Same ID as g1, but different score (updated)
     updated_home_score = 12
     g1_updated = Game(
-        "A", updated_home_score, "B", 5, False, True, datetime(year, 1, 1), "1"
+        "A", updated_home_score, "B", 5, False, True, datetime(year, 11, 1), "1"
     )
 
-    g3 = Game("E", 30, "F", 25, False, True, datetime(year, 1, 8), "3")
+    g3 = Game("E", 30, "F", 25, False, True, datetime(year, 11, 8), "3")
 
-    day_params = [DayParams(date(year, 1, 1), NcaabbGender.mens, NcaabbGroup.d1)]
+    day_params = [DayParams(date(year, 11, 1), NcaabbGender.mens, NcaabbGroup.d1)]
     s1 = Season(
         weeks=[Week([g1, g2], 1)],
         year=year,
@@ -80,3 +83,54 @@ def test_merge_seasons() -> None:
 
     # Check trouble params
     assert set(merged.trouble_params or []) == set(day_params)
+
+
+def _dated_game(day: datetime, game_id: str) -> Game:
+    return Game("A", 10, "B", 5, False, True, day, game_id)
+
+
+def test_group_games_into_weeks__numbers_from_season_start() -> None:
+    year = 1989
+    november = _dated_game(datetime(year, 11, 1), "nov")
+    march = _dated_game(datetime(year + 1, 3, 7), "mar")
+
+    weeks = group_games_into_weeks([november, march], year)
+
+    assert [w.number for w in weeks] == [1, 19]
+
+
+def test_group_games_into_weeks__numbering_is_stable_for_a_partial_season() -> None:
+    """The bug: an incremental pull only sees recent games and renumbers from 1.
+
+    Grouping a tail of the season has to give those weeks the same numbers
+    they'd get if the whole season were grouped at once.
+    """
+    year = 1989
+    early = _dated_game(datetime(year, 11, 1), "early")
+    late = _dated_game(datetime(year + 1, 3, 7), "late")
+
+    full = group_games_into_weeks([early, late], year)
+    # What a daily run that only fetched March would produce
+    partial = group_games_into_weeks([late], year)
+
+    assert [w.number for w in partial] == [w.number for w in full if w.games[0] is late]
+    assert partial[0].number == 19
+
+
+def test_merge_seasons__repairs_positionally_numbered_weeks() -> None:
+    """Seasons saved under the old numbering get regrouped, not carried forward.
+
+    The old code numbered by position, so a March-only incremental pull
+    produced a "week 1" that merged into November's week 1.
+    """
+    year = 1989
+    november = _dated_game(datetime(year, 11, 1), "nov")
+    march = _dated_game(datetime(year + 1, 3, 7), "mar")
+
+    # Both mislabelled week 1, which is exactly the corrupted shape
+    saved = Season(weeks=[Week([november, march], 1)], year=year, trouble_params=None)
+
+    merged = merge_seasons([saved])
+
+    assert [w.number for w in merged.weeks] == [1, 19]
+    assert [g.game_id for w in merged.weeks for g in w.games] == ["nov", "mar"]

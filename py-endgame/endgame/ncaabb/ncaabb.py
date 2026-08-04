@@ -1,9 +1,8 @@
-from collections import defaultdict
 from datetime import date, datetime, timedelta
 from enum import Enum
 from itertools import groupby
 from logging import getLogger
-from typing import AsyncIterator, DefaultDict, List, NamedTuple
+from typing import AsyncIterator, Iterable, List, NamedTuple
 
 import aiohttp
 
@@ -129,15 +128,7 @@ async def get_ncaabb_season(
             )
             trouble_days.append(day_param)
 
-    # Group into weeks.
-    week_groups = groupby(
-        sorted(games, key=lambda g: g.date), key=lambda g: _get_week(g.date)
-    )
-    weeks = [
-        Week(list(week_games), week_num + 1)
-        for week_num, (_, week_games) in enumerate(week_groups)
-    ]
-    season = Season(weeks, year, trouble_days)
+    season = Season(group_games_into_weeks(games, year), year, trouble_days)
     if season_so_far:
         season = merge_seasons([season_so_far, season])
 
@@ -150,36 +141,61 @@ async def get_ncaabb_season(
 def merge_seasons(seasons: List[Season]) -> Season:
     assert all(s.year == seasons[0].year for s in seasons)
 
-    # Merge weeks/games
-    weeks_games: DefaultDict[int, dict[str, Game]] = defaultdict(dict)
+    # Pool every game, then rebuild the weeks from their dates. Regrouping
+    # rather than merging by week.number means a season saved under the old
+    # positional numbering gets repaired the next time it's merged, instead
+    # of the bad grouping being carried forward.
+    games: dict[str, Game] = {}
     for season in seasons:
         for week in season.weeks:
             for game in week.games:
                 # If a game showed up multiple times, keep the latest version
-                weeks_games[week.number][game.game_id] = game
-    # Sort both levels: dicts preserve insertion order, which here is
-    # "whatever order the seasons being merged happened to be in".
-    weeks = [
-        Week(sorted(week_games.values(), key=lambda g: g.date), week_num)
-        for week_num, week_games in sorted(weeks_games.items())
-    ]
+                games[game.game_id] = game
 
     # Merge trouble params
     trouble_params = set(sum((s.trouble_params or [] for s in seasons), []))
 
     return Season(
-        weeks,
+        group_games_into_weeks(games.values(), seasons[0].year),
         seasons[0].year,
         list(trouble_params),
     )
 
 
+def _week_end(day: date) -> date:
+    # The AP poll is released based on Monday-Sunday games, so I'll default
+    # to that grouping, keyed by the Monday that follows it.
+    return day + timedelta(days=7 - day.weekday())
+
+
 def _get_week(gametime: datetime) -> date:
-    # The AP poll is released based on Monday-Sunday games,
-    # so I'll default to that grouping.
-    # 7 is the .weekday for Sunday
-    days_until_sunday = 7 - gametime.weekday()
-    return gametime.date() + timedelta(days=days_until_sunday)
+    return _week_end(gametime.date())
+
+
+def _week_number(week_end: date, year: int) -> int:
+    """
+    Number a week by how far it is from the start of the season.
+
+    Derived from the date rather than from the week's position among the
+    games we happen to have, so grouping part of a season gives the same
+    numbers as grouping all of it. Numbering positionally is what let an
+    incremental pull restart at 1 and merge March games into November's
+    week 1.
+    """
+    return (week_end - _week_end(date(year, *REGULAR_SEASON_START))).days // 7 + 1
+
+
+def group_games_into_weeks(games: Iterable[Game], year: int) -> List[Week]:
+    """
+    Group games into Monday-Sunday weeks, numbered from the season's start.
+    """
+    by_week = groupby(
+        sorted(games, key=lambda g: g.date), key=lambda g: _get_week(g.date)
+    )
+    return [
+        Week(list(week_games), _week_number(week_end, year))
+        for week_end, week_games in by_week
+    ]
 
 
 def _date_range(start: date, end: date) -> List[date]:
