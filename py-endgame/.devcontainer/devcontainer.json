@@ -35,14 +35,15 @@
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "sourcery.sourcery"
+        "sourcery.sourcery",
+        "anthropic.claude-code"
       ]
     }
   },
   "mounts": [
     "source=py-endgame-bashhistory,target=/commandhistory,type=volume",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.endgame/cache,target=/root/.endgame/cache,type=bind,consistency=cached",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/root/.gitconfig,type=bind,readonly,consistency=cached"
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude,target=/root/.claude,type=bind,consistency=cached"
   ],
   "postCreateCommand": "poetry install"
 }

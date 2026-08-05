@@ -82,6 +82,19 @@ async def get_seasons(gender: NcaabbGender) -> List[Season]:
     return [s async for s in apply_in_parallel(get_ncaabb_season, args)]
 
 
+
+def _last_day_so_far(season_so_far: Season | None) -> date | None:
+    if season_so_far is None:
+        return None
+    # Might get the most recent day's games again unnecessarily.
+    # That's fine because we don't know if all the games
+    # for that day were done last time this was run.
+    last_day_done = max((g.date for w in season_so_far.weeks for g in w.games), None)
+    if last_day_done is None:
+        return None
+    return last_day_done.date()
+
+
 async def get_ncaabb_season(
     year: int, gender: NcaabbGender, season_so_far: Season | None = None
 ) -> Season:
@@ -92,23 +105,13 @@ async def get_ncaabb_season(
         return season
 
     day_params: List[DayParams] = []
-    start = date(year, *REGULAR_SEASON_START)
-    if season_so_far:
-        # Might get the most recent day's games again unnecessarily.
-        # That's fine because we don't know if all the games
-        # for that day were done last time this was run.
-        start = max(g.date for w in season_so_far.weeks for g in w.games).date()
+    start = _last_day_so_far(season_so_far) or date(year, *REGULAR_SEASON_START)
     end = date(year + 1, *REGULAR_SEASON_END)
     # Don't try to get dates in the future
     end = min(end, date.today())
     for day in _date_range(start, end):
         day_params.append(DayParams(day, gender, NcaabbGroup.d1))
-    start = date(year + 1, *POST_SEASON_START)
-    if season_so_far:
-        # Might get the most recent day's games again unnecessarily.
-        # That's fine because we don't know if all the games
-        # for that day were done last time this was run.
-        start = max(g.date for w in season_so_far.weeks for g in w.games).date()
+    start = _last_day_so_far(season_so_far) or date(year + 1, *POST_SEASON_START)
     end = date(year + 1, *SEASON_END)
     # Don't try to get dates in the future
     end = min(end, date.today())
