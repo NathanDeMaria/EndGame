@@ -82,7 +82,6 @@ async def get_seasons(gender: NcaabbGender) -> List[Season]:
     return [s async for s in apply_in_parallel(get_ncaabb_season, args)]
 
 
-
 def _last_day_so_far(season_so_far: Season | None) -> date | None:
     if season_so_far is None:
         return None
