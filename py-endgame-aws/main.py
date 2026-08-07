@@ -111,16 +111,16 @@ async def box_scores(gender_name: str, year: int):
     pulled_game_ids = {side.game_id for side in box_score_rows_so_far}
     async for box_score in get_season_box_scores(season, gender, pulled_game_ids):
         box_score_rows.extend(
-            FlattenedBoxScore(
-                **player.to_dict(),  # type: ignore[arg-type]
+            FlattenedBoxScore.from_player(
+                player,
                 team_id=box_score.home.team_id,
                 game_id=box_score.game_id,
             ).to_dict()
             for player in box_score.home.players
         )
         box_score_rows.extend(
-            FlattenedBoxScore(
-                **player.to_dict(),  # type: ignore[arg-type]
+            FlattenedBoxScore.from_player(
+                player,
                 team_id=box_score.away.team_id,
                 game_id=box_score.game_id,
             ).to_dict()

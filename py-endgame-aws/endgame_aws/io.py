@@ -4,7 +4,7 @@ import pickle
 from csv import DictReader, DictWriter
 from dataclasses import dataclass
 from io import StringIO
-from typing import AsyncIterator, Type, TypeVar
+from typing import Any, AsyncIterator, Type, TypeVar
 
 from aiobotocore.session import get_session
 from botocore.exceptions import ClientError
@@ -14,15 +14,58 @@ from endgame.ncaabb.ncaabb import Season
 from endgame.ncaabb.possession_side import PossessionSide
 
 
-class _SerializablePossession(PossessionSide, DataClassJsonMixin):  # type: ignore[misc]
-    # Ignore mypy because this double-defines to_dict, but it's unused anyway
-    pass
+class _SerializablePossession(PossessionSide, DataClassJsonMixin):
+    # Both bases define `to_dict`, with signatures neither a type checker nor
+    # the MRO can reconcile: `PossessionSide.to_dict()` takes no arguments and
+    # returns `dict[str, Primitive]`, while `DataClassJsonMixin.to_dict()`
+    # takes `encode_json` and returns `dict[str, Json]`. Spell out an override
+    # that both bases accept -- it delegates to the `PossessionSide` one, which
+    # is what the MRO already picked, so this is only making the resolution
+    # explicit. This class is only used for its `schema()`, anyway.
+    def to_dict(self, encode_json: bool = False) -> dict[str, Any]:
+        return PossessionSide.to_dict(self)
 
 
 @dataclass
 class FlattenedBoxScore(PlayerBoxScore, DataClassJsonMixin):
     game_id: str
     team_id: str
+
+    @classmethod
+    def from_player(
+        cls, player: PlayerBoxScore, *, game_id: str, team_id: str
+    ) -> "FlattenedBoxScore":
+        """
+        Build a flattened row from a player's box score plus the ids of the
+        game and team it came from.
+
+        Copies the fields out one by one rather than splatting
+        `**player.to_dict()`: the dict is typed as `dict[str, Json]`, so
+        splatting it hides every field from the type checker. Written out, a
+        new field on `PlayerBoxScore` shows up here as a missing argument.
+        """
+        return cls(
+            player_id=player.player_id,
+            short_name=player.short_name,
+            minutes_played=player.minutes_played,
+            field_goal_makes=player.field_goal_makes,
+            field_goal_attempts=player.field_goal_attempts,
+            three_point_makes=player.three_point_makes,
+            three_point_attempts=player.three_point_attempts,
+            free_throw_makes=player.free_throw_makes,
+            free_throw_attempts=player.free_throw_attempts,
+            offensive_rebounds=player.offensive_rebounds,
+            defensive_rebounds=player.defensive_rebounds,
+            rebounds=player.rebounds,
+            assists=player.assists,
+            steals=player.steals,
+            blocks=player.blocks,
+            turnovers=player.turnovers,
+            fouls=player.fouls,
+            points=player.points,
+            game_id=game_id,
+            team_id=team_id,
+        )
 
 
 async def save_to_s3(seasons: list[Season], bucket: str, key: str):
