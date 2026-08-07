@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from logging import getLogger
 from typing import AsyncIterator
 
@@ -86,8 +86,8 @@ async def get_season(year: int) -> Season:
     season = Season(weeks, year)
 
     # Cache if the season is over
-    season_end_date = datetime(year + 1, *SEASON_END)
-    if datetime.utcnow() > season_end_date:
+    season_end_date = datetime(year + 1, *SEASON_END, tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > season_end_date:
         cache.save_to_cache(season)
 
     return season

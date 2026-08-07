@@ -58,7 +58,7 @@ async def get_possessions(
     url = URL_FORMAT.format(gender=gender.name, game_id=game_id)
     try:
         content = await get(url)
-    except aiohttp.client_exceptions.ClientResponseError as error:
+    except aiohttp.ClientResponseError as error:
         if error.code == 404:
             return None
         raise error

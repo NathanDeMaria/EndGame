@@ -32,12 +32,7 @@ jobs:
       run: poetry run ruff check .
     - name: ty check
       working-directory: ${{ matrix.package }}
-      # py-endgame-aws is clean, so ty gates it. py-endgame still has a
-      # pre-existing backlog of type errors that needs triage, so there it
-      # only runs to show up in the log -- drop this `continue-on-error`
-      # entirely once that backlog is cleared.
       run: poetry run ty check .
-      continue-on-error: ${{ matrix.package != 'py-endgame-aws' }}
 
   make-push:
     needs: lint

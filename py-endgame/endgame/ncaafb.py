@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import groupby
 from logging import getLogger
 from typing import AsyncIterator, Iterator, List
@@ -28,7 +28,7 @@ async def update(location="ncaaf.csv"):
     Update the NCAAFB data
     """
     end_year = get_end_year(SEASON_END)
-    args = [[y] for y in range(1999, end_year + 1)]
+    args = [(y,) for y in range(1999, end_year + 1)]
     seasons = [s async for s in apply_in_parallel(get_season, args)]
     save_seasons(seasons, location)
 
@@ -57,7 +57,7 @@ async def get_season(year: int) -> Season:
             week = await _get_week(*week_param)
             weeks.append(week)
         # Should I raise custom exception instead?
-        except aiohttp.client_exceptions.ClientResponseError:
+        except aiohttp.ClientResponseError:
             year, week_num, season_type, group = week_param
             msg = (
                 f"Marking week as trouble: "
@@ -70,8 +70,8 @@ async def get_season(year: int) -> Season:
     season = Season(weeks, year, trouble_weeks)
 
     # Cache if the season is over
-    season_end_date = datetime(year + 1, *SEASON_END)
-    if datetime.utcnow() > season_end_date:
+    season_end_date = datetime(year + 1, *SEASON_END, tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > season_end_date:
         cache.save_to_cache(season)
 
     return season
