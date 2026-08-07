@@ -2,7 +2,7 @@ from csv import DictWriter
 from dataclasses import dataclass
 from typing import AsyncIterable, Dict, Tuple, Union
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from ..web import get
 from .teams import PRO_FOOTBALL_REFERENCE_SHORT_NAMES, NflTeam
@@ -70,7 +70,10 @@ async def get_coaches(year: int) -> AsyncIterable[Tuple[str, NflTeam]]:
     """
     content = await get(URL_FORMAT.format(year=year))
     soup = BeautifulSoup(content.data, features="html.parser")
-    rows = soup.find(id="coaches").find_all("tr")  # type: ignore[union-attr]
+    coaches_table = soup.find(id="coaches")
+    if not isinstance(coaches_table, Tag):
+        raise ValueError(f"No coaches table on the {year} coaches page")
+    rows = coaches_table.find_all("tr")
     _, column_headers, *data_rows = rows
     column_names = [h.text for h in column_headers.find_all("th")]
 

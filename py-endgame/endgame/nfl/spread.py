@@ -73,12 +73,21 @@ async def get_spreads(week: str) -> AsyncIterable[Game]:
     tables = soup.find_all("table")
 
     for table in tables:
-        if row := table.findChild("tr", recursive=False):
-            if td_tag := row.findChild("td", recursive=False):
-                if center := td_tag.findChild("center", recursive=False):
-                    games = _to_games(td_tag, center.text)
-                    for game in games:
-                        yield game
+        # `findChild` has been a deprecated alias for `find` since bs4 3.0, and
+        # its shim doesn't take `recursive`. Each `find` can also come back as a
+        # `NavigableString`, which the `Tag` checks below rule out -- a bare
+        # truthiness check wouldn't, since `NavigableString` is a `str`.
+        row = table.find("tr", recursive=False)
+        if not isinstance(row, Tag):
+            continue
+        td_tag = row.find("td", recursive=False)
+        if not isinstance(td_tag, Tag):
+            continue
+        center = td_tag.find("center", recursive=False)
+        if not isinstance(center, Tag):
+            continue
+        for game in _to_games(td_tag, center.text):
+            yield game
 
     await content.save_if_necessary()
 

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from itertools import groupby
 from logging import getLogger
@@ -78,8 +78,13 @@ async def get_seasons(gender: NcaabbGender) -> List[Season]:
     Get all seasons for a NCAABB
     """
     end_year = get_end_year(SEASON_END)
-    args = [(y, gender) for y in range(2001, end_year + 1)]
-    return [s async for s in apply_in_parallel(get_ncaabb_season, args)]
+    # `apply_in_parallel` binds every parameter of the callable it's handed,
+    # including `get_ncaabb_season`'s two defaulted ones, so wrap it to take
+    # just the year rather than padding every tuple out with `None`s.
+    args = [(y,) for y in range(2001, end_year + 1)]
+    return [
+        s async for s in apply_in_parallel(lambda y: get_ncaabb_season(y, gender), args)
+    ]
 
 
 def _last_day_so_far(season_so_far: Season | None) -> date | None:
@@ -128,7 +133,7 @@ async def get_ncaabb_season(
     for day_param in day_params:
         try:
             games += await get_ncaabb_games(*day_param)
-        except aiohttp.client_exceptions.ClientResponseError:
+        except aiohttp.ClientResponseError:
             day, gender, group = day_param
             logger.warning(
                 "Marking %s for %s %s as trouble", day, gender.name, group.name
@@ -139,7 +144,9 @@ async def get_ncaabb_season(
     if season_so_far:
         season = merge_seasons([season_so_far, season])
 
-    if datetime.utcnow() > datetime(year + 1, *SEASON_END):
+    if datetime.now(timezone.utc) > datetime(
+        year + 1, *SEASON_END, tzinfo=timezone.utc
+    ):
         cache.save_to_cache(season)
 
     return season

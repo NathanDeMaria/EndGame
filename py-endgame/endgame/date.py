@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Tuple
 
 
@@ -12,5 +12,5 @@ def get_end_year(season_end: Tuple[int, int]) -> int:
     EX: if the most recent NFL season is 2019-2020,
     this will return 2019.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return now.year - 1 if (now.month, now.day) < season_end else now.year

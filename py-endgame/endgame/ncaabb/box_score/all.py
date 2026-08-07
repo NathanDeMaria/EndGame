@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from logging import getLogger
 from typing import AsyncIterator, Iterable, Iterator, List, Optional
 
-from aiohttp.client_exceptions import ClientResponseError
+from aiohttp import ClientResponseError
 from bs4 import BeautifulSoup, Tag
 from dataclasses_json import DataClassJsonMixin
 
@@ -179,8 +179,23 @@ def _get_td_text(tag: Tag) -> str:
     return td.text
 
 
+def _get_str_attr(tag: Tag, name: str) -> str:
+    """
+    Read a single-valued attribute off a tag.
+
+    `Tag.attrs` values are `str | AttributeValueList`, because bs4 hands back a
+    list for multi-valued attributes like `class`. The attributes read here are
+    single-valued, so a list means the page isn't shaped the way this parser
+    expects.
+    """
+    value = tag.attrs[name]
+    if not isinstance(value, str):
+        raise _ParseError
+    return value
+
+
 def _get_team_id(team_name_tag: Tag) -> str:
-    team_link = team_name_tag.attrs["href"]
+    team_link = _get_str_attr(team_name_tag, "href")
     # This link hopefully always looks like:
     # /womens-college-basketball/team/_/id/12/arizona-wildcats
     return team_link.split("/")[-2]
@@ -214,7 +229,7 @@ def _parse_player(
     player: Tag, columns: List[str], stat_values: List[str], team_id: str
 ) -> RawPlayer:
     if player_link := player.select_one("td a"):
-        href = player_link.attrs["href"]
+        href = _get_str_attr(player_link, "href")
         *_, player_id, short_name = href.split("/")
     else:
         # If there's no ID, use the team+player name to make an ID
