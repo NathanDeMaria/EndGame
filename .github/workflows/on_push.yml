@@ -49,22 +49,22 @@ jobs:
         fetch-depth: 0  # Needed to get the full git history for rev-parse
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-    - name: Expose the Actions cache to buildx
-      # buildx's `type=gha` backend needs these, but the runner only exposes
-      # them to actions -- not to plain `run:` steps. Re-exporting them here
-      # lets the bare `docker buildx build` inside the Makefile use the cache,
-      # so CI and local builds stay one build definition.
-      # ACTIONS_RESULTS_URL is for the v2 cache API; without it, recent buildx
-      # versions can't reach the cache service at all.
-      uses: actions/github-script@v7
-      with:
-        script: |
-          for (const v of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_URL', 'ACTIONS_RESULTS_URL']) {
-            core.exportVariable(v, process.env[v] || '')
-          }
     - name: Run make push
+      # Layer cache lives in ECR alongside the image rather than in the Actions
+      # cache. `type=gha` needs ACTIONS_RUNTIME_TOKEN, which the runner only
+      # hands to JS actions and deliberately withholds from `run:` steps, so a
+      # bare `docker buildx build` in the Makefile can't reach it without
+      # re-exporting the runner's internals. Registry cache authenticates with
+      # the ECR login the push already does, so CI and local stay one build
+      # definition with nothing smuggled between them.
+      # image-manifest/oci-mediatypes are required: ECR rejects buildx's
+      # default cache manifest format.
+      # All branches share one :buildcache tag. Unlike the Actions cache it
+      # isn't scoped per branch, but the layers worth reusing (apt, poetry
+      # install) are the same everywhere, and a stale write is just a miss.
       run: |
         cd py-endgame-aws
         echo '${{ secrets.BATCH_CORE_CONFIG }}' > config.json
         make push TAG=${GITHUB_SHA::7} \
-          CACHE_FLAGS="--cache-from type=gha --cache-to type=gha,mode=max"
+          CACHE_FLAGS="--cache-from type=registry,ref=${IMAGE_URL}:buildcache \
+            --cache-to type=registry,ref=${IMAGE_URL}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true"
