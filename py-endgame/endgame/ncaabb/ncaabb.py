@@ -88,17 +88,22 @@ def _last_day_so_far(season_so_far: Season | None) -> date | None:
     # Might get the most recent day's games again unnecessarily.
     # That's fine because we don't know if all the games
     # for that day were done last time this was run.
-    last_day_done = max((g.date for w in season_so_far.weeks for g in w.games), None)
+    last_day_done = max(
+        (g.date for w in season_so_far.weeks for g in w.games), default=None
+    )
     if last_day_done is None:
         return None
     return last_day_done.date()
 
 
 async def get_ncaabb_season(
-    year: int, gender: NcaabbGender, season_so_far: Season | None = None
+    year: int,
+    gender: NcaabbGender,
+    season_so_far: Season | None = None,
+    season_cache: SeasonCache | None = None,
 ) -> Season:
     logger.info("Getting NCAABB %s season %d", gender.name, year)
-    cache = SeasonCache(f"ncaa{gender.name[0]}bb")
+    cache = season_cache or SeasonCache(f"ncaa{gender.name[0]}bb")
     season = cache.check_cache(year)
     if season:
         return season
