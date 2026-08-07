@@ -14,8 +14,13 @@ GIT_COMMIT := $(shell git rev-parse --short HEAD)
 # Check if we're on the main branch
 IS_MAIN := $(shell git rev-parse --abbrev-ref HEAD | grep -q ^main$$ && echo true || echo false)
 
+# CI passes buildx cache flags in here; empty locally, where the daemon's own
+# layer cache already does the job.
+CACHE_FLAGS ?=
+
 build:
-	docker build -f .devcontainer/Dockerfile -t ${IMAGE_URL}:${TAG} .
+	docker buildx build ${CACHE_FLAGS} --target runtime --load \
+		-f .devcontainer/Dockerfile -t ${IMAGE_URL}:${TAG} .
 	@if [ "${IS_MAIN}" = "true" ]; then \
 		docker tag ${IMAGE_URL}:${TAG} ${IMAGE_URL}:latest; \
 	fi

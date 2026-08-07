@@ -2,7 +2,8 @@
   "name": "endgame-aws",
   "build": {
     "context": "..",
-    "dockerfile": "./Dockerfile"
+    "dockerfile": "./Dockerfile",
+    "target": "dev"
   },
   "customizations": {
     "vscode": {
