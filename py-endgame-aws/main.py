@@ -85,6 +85,7 @@ async def box_scores(gender_name: str, year: int):
     has_games = any(game for week in season.weeks for game in week.games)
     if not has_games:
         logger.warning("No games found (yet) for %s %d", gender.name, year)
+        return
 
     rows_so_far = await _load_possessions(_CONFIG.bucket, year, gender)
     rows: list[dict] = [r.to_dict() for r in rows_so_far]
