@@ -39,7 +39,7 @@ class NflTeam(Enum):
     cowboys = auto()
     eagles = auto()
     giants = auto()
-    washington = auto()
+    commanders = auto()
 
     cardinals = auto()
     rams = auto()
@@ -85,5 +85,5 @@ PRO_FOOTBALL_REFERENCE_SHORT_NAMES = {
     "STL": NflTeam.rams,
     "TAM": NflTeam.buccaneers,
     "TEN": NflTeam.titans,
-    "WAS": NflTeam.washington,
+    "WAS": NflTeam.commanders,
 }

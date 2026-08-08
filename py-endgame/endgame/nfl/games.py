@@ -106,7 +106,7 @@ async def _get_week(season: int, week: int, season_type: SeasonType) -> Week:
     )
 
     games = await get_games(BASE_URL, parameters)
-    games = [_move_teams(g) for g in games if g.home in REAL_TEAMS]
+    games = [move_teams(g) for g in games if g.home in REAL_TEAMS]
 
     if season_type == SeasonType.post:
         week += N_REGULAR_WEEKS
@@ -127,7 +127,7 @@ async def get_current_odds() -> AsyncIterator[Odds]:
         yield odd
 
 
-def _move_teams(game: Game) -> Game:
+def move_teams(game: Game) -> Game:
     game_dict = game.to_dict()
     game_dict["away"] = _move_team_name(game_dict["away"])
     game_dict["home"] = _move_team_name(game_dict["home"])
@@ -138,7 +138,8 @@ def _move_team_name(old_name: str) -> str:
     tidy_name = (
         old_name.replace("San Diego", "Los Angeles")
         .replace("St. Louis", "Los Angeles")
-        .replace("Washington Redskins", "Washington")
+        .replace("Washington Redskins", "commanders")
+        .replace("Washington", "commanders")
         .replace("Oakland Raiders", "Las Vegas Raiders")
         .replace("49ers", "niners")
     )

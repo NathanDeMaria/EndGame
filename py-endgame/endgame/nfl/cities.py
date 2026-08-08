@@ -40,5 +40,5 @@ CITIES = {
     "San Francsico": NflTeam.niners,
     "Tampa Bay": NflTeam.buccaneers,
     "Tennessee": NflTeam.titans,
-    "Washington": NflTeam.washington,
+    "Washington": NflTeam.commanders,
 }
