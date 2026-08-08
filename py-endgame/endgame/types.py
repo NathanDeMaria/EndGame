@@ -1,6 +1,19 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, Iterator, List, NamedTuple, Optional
+from itertools import groupby
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+)
+
+# The (month, day) of `year` that a season's week numbering counts from
+SeasonStart = Tuple[int, int]
 
 
 class Game(NamedTuple):
@@ -108,19 +121,67 @@ class Season(NamedTuple):
     year: int
     # This is either DayParams (basketball) or WeekParams in practice
     trouble_params: Optional[List] = None
+    # When set, `.weeks` is only a record of how the games were fetched, and
+    # the chronological view of the season (`calendar_weeks`, `iter_weeks`)
+    # is rebuilt from the game dates, counting from this (month, day).
+    #
+    # Leagues whose source week numbers are already chronological (the NFL,
+    # whose weeks run Thursday-Monday) leave this unset and are walked in
+    # their own numbering.
+    season_start: Optional[SeasonStart] = None
 
     @property
     def weeks_in_order(self) -> List[Week]:
         """
-        The weeks, sorted by when their first game happened.
+        The weeks as fetched, sorted by when their first game happened.
 
         Prefer this over `.weeks`: the raw list's order depends on how the
         season happened to be built and merged. Sorts on game dates rather
         than `week.number` because the numbering itself has been unreliable.
 
+        These are the source's weeks, so for a league with a `season_start`
+        they can still overlap in time -- use `calendar_weeks` (or
+        `iter_weeks`) to walk the season, and these to trace a game back to
+        the request that fetched it.
+
         Weeks with no games sort last, since they have no date to sort on.
         """
         return sorted(self.weeks, key=_week_sort_key)
+
+    @property
+    def calendar_weeks(self) -> List[Week]:
+        """
+        Every game in the season, regrouped into Monday-Sunday calendar
+        weeks numbered from `season_start`.
+
+        Built from the game dates rather than the source's week numbers, so
+        weeks can't overlap however badly the source labelled things.
+
+        Raises ValueError if the season has no `season_start`, since there'd
+        be nothing to number the weeks from.
+        """
+        if self.season_start is None:
+            raise ValueError(
+                f"Season {self.year} has no season_start, so its games can't be "
+                "regrouped into calendar weeks. Walk `weeks_in_order` instead."
+            )
+        # Pool by game_id: the same game can be fetched more than once (a
+        # cross-division matchup comes back under both divisions), and the
+        # copies aren't guaranteed to be identical.
+        games = {g.game_id: g for week in self.weeks for g in week.games}
+        return group_games_into_weeks(games.values(), self.year, self.season_start)
+
+    def with_season_start(self, season_start: SeasonStart) -> "Season":
+        """
+        A copy of this season tagged with the (month, day) its week
+        numbering counts from.
+
+        Seasons pickled before that field existed come back untagged, and
+        the cache is never overwritten, so leagues tag them on the way out
+        of it. Only the tag is added -- `.weeks` is left alone, and the
+        calendar weeks get rebuilt from the games.
+        """
+        return self._replace(season_start=season_start)
 
 
 def _week_sort_key(week: Week) -> "tuple[int, Any]":
@@ -130,6 +191,43 @@ def _week_sort_key(week: Week) -> "tuple[int, Any]":
         # week numbers from ever being compared against a datetime.
         return (1, week.number)
     return (0, start)
+
+
+def _week_end(day: date) -> date:
+    # The AP poll is released based on Monday-Sunday games, so I'll default
+    # to that grouping, keyed by the Monday that follows it.
+    return day + timedelta(days=7 - day.weekday())
+
+
+def _week_number(week_end: date, year: int, season_start: SeasonStart) -> int:
+    """
+    Number a week by how far it is from the start of the season.
+
+    Derived from the date rather than from the week's position among the
+    games we happen to have, so grouping part of a season gives the same
+    numbers as grouping all of it. Numbering positionally is what let an
+    incremental pull restart at 1 and merge March games into November's
+    week 1.
+    """
+    return (week_end - _week_end(date(year, *season_start))).days // 7 + 1
+
+
+def group_games_into_weeks(
+    games: Iterable[Game], year: int, season_start: SeasonStart
+) -> List[Week]:
+    """
+    Group games into Monday-Sunday weeks, numbered from the season's start.
+
+    `season_start` is the (month, day) of `year` that week 1 contains, so
+    the numbers don't depend on which games happen to be in hand.
+    """
+    by_week = groupby(
+        sorted(games, key=lambda g: g.date), key=lambda g: _week_end(g.date.date())
+    )
+    return [
+        Week(list(week_games), _week_number(week_end, year, season_start))
+        for week_end, week_games in by_week
+    ]
 
 
 class OverlappingWeeksError(ValueError):
@@ -166,13 +264,20 @@ def iter_weeks(season: Season, validate: bool = True) -> Iterator[Week]:
     to walk the games inside each week.
 
     This is the intended way to traverse a season -- iterating `.weeks` and
-    `.games` directly gives you whatever order the season was built in.
+    `.games` directly gives you whatever order the season was built in, in
+    whatever weeks the source put the games in.
+
+    A season with a `season_start` is walked as calendar weeks rebuilt from
+    the game dates, so `week.number` here won't always match the number the
+    source used (`.weeks` keeps those). Without one, the source's weeks are
+    walked in date order.
 
     Raises OverlappingWeeksError if the weeks overlap in time, which means
     the grouping is wrong rather than merely unsorted. Pass validate=False
-    to walk the weeks anyway.
+    to walk the weeks anyway. Calendar weeks can't overlap, so this only
+    fires for a season walked in its source's numbering.
     """
-    weeks = season.weeks_in_order
+    weeks = season.calendar_weeks if season.season_start else season.weeks_in_order
     if validate:
         check_weeks_dont_overlap(weeks)
     # Deliberately not a generator, so validation happens when this is

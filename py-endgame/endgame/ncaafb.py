@@ -19,8 +19,20 @@ logger = getLogger(__name__)
 BASE_URL = (
     "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard"
 )
+# The bound on the weeks we ask ESPN for, and the offset that keeps
+# postseason week numbers from colliding with regular season ones.
 N_REGULAR_WEEKS = 16
 SEASON_END = (2, 1)
+# Week 1 is the Monday-Sunday week containing this day. The earliest game in
+# any season we have is 2002-08-22, so every game lands in week 1 or later.
+#
+# ESPN's own week numbers are kept on the Week objects (they're how you find
+# the request a game came from), but they aren't chronological: it mislabels
+# the odd game, and the whole postseason comes back as one week that runs
+# from the early December bowls into January, concurrently with the FCS/D2/D3
+# playoffs sitting in regular season weeks 14-16. So the season is tagged
+# with a start and walked as calendar weeks instead.
+SEASON_START = (8, 20)
 
 
 async def update(location="ncaaf.csv"):
@@ -42,7 +54,7 @@ async def get_season(year: int) -> Season:
     season = cache.check_cache(year)
     # TODO: add an option to ignore the cache if it has any skipped weeks?
     if season:
-        return season
+        return season.with_season_start(SEASON_START)
 
     week_params: List[WeekParams] = []
     for group in NcaaFbGroup:
@@ -67,7 +79,7 @@ async def get_season(year: int) -> Season:
             trouble_weeks.append(week_param)
 
     weeks = list(_remove_cross_division_duplicates(weeks))
-    season = Season(weeks, year, trouble_weeks)
+    season = Season(weeks, year, trouble_weeks, SEASON_START)
 
     # Cache if the season is over
     season_end_date = datetime(year + 1, *SEASON_END, tzinfo=timezone.utc)

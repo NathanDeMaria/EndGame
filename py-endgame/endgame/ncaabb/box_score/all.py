@@ -8,7 +8,7 @@ from dataclasses_json import DataClassJsonMixin
 
 from ...async_tools import apply_in_parallel
 from ...cacheable import DiskCache
-from ...types import Season
+from ...types import Season, iter_weeks
 from ...web import get
 from ..gender import NcaabbGender
 from ..ncaabb import get_seasons
@@ -98,7 +98,9 @@ async def get_season_box_scores(
     season: Season, gender: NcaabbGender, skip_game_ids: set[str] | None = None
 ) -> AsyncIterator[BoxScore]:
     game_id_filter = skip_game_ids or set()
-    for week in season.weeks:
+    # A week at a time, so the work is batched (and logged) in chunks
+    # rather than firing off a whole season's games at once.
+    for week in iter_weeks(season):
         args = [
             (gender, game.game_id)
             for game in week.games

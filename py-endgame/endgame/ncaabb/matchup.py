@@ -6,6 +6,7 @@ import aiohttp
 from bs4 import BeautifulSoup, Tag
 
 from ..async_tools import apply_in_parallel
+from ..types import iter_weeks
 from ..web import get
 from .gender import NcaabbGender
 from .ncaabb import get_seasons
@@ -32,7 +33,9 @@ async def save_possessions(gender: NcaabbGender, location: Optional[str] = None)
 
     rows = []
     for season in seasons:
-        for week in season.weeks:
+        # A week at a time, so the work is batched (and logged) in chunks
+        # rather than firing off a whole season's games at once.
+        for week in iter_weeks(season):
             logger.info("Getting matchups for %d %d", season.year, week.number)
             args = [(gender, game.game_id) for game in week.games]
             games = apply_in_parallel(get_possessions, args)

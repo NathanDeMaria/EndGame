@@ -1,6 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
-from itertools import groupby
 from logging import getLogger
 from typing import AsyncIterator, Iterable, List, NamedTuple
 
@@ -70,7 +69,9 @@ async def update(gender: NcaabbGender, location=None):
         location = f"ncaa{gender.name[0]}bb.csv"
 
     seasons = await get_seasons(gender)
-    save_seasons(seasons, location)
+    # Games go into a season the way they were fetched -- by day -- so group
+    # them into weeks for the .csv's week column.
+    save_seasons([s._replace(weeks=s.calendar_weeks) for s in seasons], location)
 
 
 async def get_seasons(gender: NcaabbGender) -> List[Season]:
@@ -111,7 +112,7 @@ async def get_ncaabb_season(
     cache = season_cache or SeasonCache(f"ncaa{gender.name[0]}bb")
     season = cache.check_cache(year)
     if season:
-        return season
+        return season.with_season_start(REGULAR_SEASON_START)
 
     day_params: List[DayParams] = []
     start = _last_day_so_far(season_so_far) or date(year, *REGULAR_SEASON_START)
@@ -140,7 +141,7 @@ async def get_ncaabb_season(
             )
             trouble_days.append(day_param)
 
-    season = Season(group_games_into_weeks(games, year), year, trouble_days)
+    season = _build_season(games, year, trouble_days)
     if season_so_far:
         season = merge_seasons([season_so_far, season])
 
@@ -152,13 +153,25 @@ async def get_ncaabb_season(
     return season
 
 
+def _build_season(games: Iterable[Game], year: int, trouble_params: List) -> Season:
+    """
+    Put a season's games together the way they were fetched.
+
+    NCAABB is pulled a day at a time, so there's no week grouping in the
+    source to keep: the games go in as one lot, and `season.calendar_weeks`
+    builds the weeks from the game dates on the way out.
+    """
+    return Season(
+        [Week(sorted(games, key=lambda g: g.date), 1)],
+        year,
+        trouble_params,
+        REGULAR_SEASON_START,
+    )
+
+
 def merge_seasons(seasons: List[Season]) -> Season:
     assert all(s.year == seasons[0].year for s in seasons)
 
-    # Pool every game, then rebuild the weeks from their dates. Regrouping
-    # rather than merging by week.number means a season saved under the old
-    # positional numbering gets repaired the next time it's merged, instead
-    # of the bad grouping being carried forward.
     games: dict[str, Game] = {}
     for season in seasons:
         for week in season.weeks:
@@ -169,47 +182,7 @@ def merge_seasons(seasons: List[Season]) -> Season:
     # Merge trouble params
     trouble_params = set(sum((s.trouble_params or [] for s in seasons), []))
 
-    return Season(
-        group_games_into_weeks(games.values(), seasons[0].year),
-        seasons[0].year,
-        list(trouble_params),
-    )
-
-
-def _week_end(day: date) -> date:
-    # The AP poll is released based on Monday-Sunday games, so I'll default
-    # to that grouping, keyed by the Monday that follows it.
-    return day + timedelta(days=7 - day.weekday())
-
-
-def _get_week(gametime: datetime) -> date:
-    return _week_end(gametime.date())
-
-
-def _week_number(week_end: date, year: int) -> int:
-    """
-    Number a week by how far it is from the start of the season.
-
-    Derived from the date rather than from the week's position among the
-    games we happen to have, so grouping part of a season gives the same
-    numbers as grouping all of it. Numbering positionally is what let an
-    incremental pull restart at 1 and merge March games into November's
-    week 1.
-    """
-    return (week_end - _week_end(date(year, *REGULAR_SEASON_START))).days // 7 + 1
-
-
-def group_games_into_weeks(games: Iterable[Game], year: int) -> List[Week]:
-    """
-    Group games into Monday-Sunday weeks, numbered from the season's start.
-    """
-    by_week = groupby(
-        sorted(games, key=lambda g: g.date), key=lambda g: _get_week(g.date)
-    )
-    return [
-        Week(list(week_games), _week_number(week_end, year))
-        for week_end, week_games in by_week
-    ]
+    return _build_season(games.values(), seasons[0].year, list(trouble_params))
 
 
 def _date_range(start: date, end: date) -> List[date]:

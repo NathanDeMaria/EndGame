@@ -8,6 +8,7 @@ from multidict import CIMultiDict, CIMultiDictProxy
 from yarl import URL
 
 from ..season_cache import SeasonCache
+from ..types import group_games_into_weeks
 from . import ncaabb as ncaabb_module
 from .ncaabb import (
     POST_SEASON_START,
@@ -23,7 +24,6 @@ from .ncaabb import (
     Week,
     _date_range,
     get_ncaabb_season,
-    group_games_into_weeks,
     is_between_dates,
     merge_seasons,
 )
@@ -75,10 +75,11 @@ def test_merge_seasons() -> None:
     merged = merge_seasons([s1, s2])
 
     assert merged.year == year
-    assert len(merged.weeks) == 2
+    weeks = merged.calendar_weeks
+    assert len(weeks) == 2
 
     # Check week 1
-    w1 = next(w for w in merged.weeks if w.number == 1)
+    w1 = next(w for w in weeks if w.number == 1)
     assert len(w1.games) == 2
 
     # Should have the updated g1
@@ -90,7 +91,7 @@ def test_merge_seasons() -> None:
     assert merged_g2.home_score == 20
 
     # Check week 2
-    w2 = next(w for w in merged.weeks if w.number == 2)
+    w2 = next(w for w in weeks if w.number == 2)
     assert len(w2.games) == 1
     merged_g3 = next(g for g in w2.games if g.game_id == "3")
     assert merged_g3.home_score == 30
@@ -108,7 +109,7 @@ def test_group_games_into_weeks__numbers_from_season_start() -> None:
     november = _dated_game(datetime(year, 11, 1), "nov")
     march = _dated_game(datetime(year + 1, 3, 7), "mar")
 
-    weeks = group_games_into_weeks([november, march], year)
+    weeks = group_games_into_weeks([november, march], year, REGULAR_SEASON_START)
 
     assert [w.number for w in weeks] == [1, 19]
 
@@ -123,9 +124,9 @@ def test_group_games_into_weeks__numbering_is_stable_for_a_partial_season() -> N
     early = _dated_game(datetime(year, 11, 1), "early")
     late = _dated_game(datetime(year + 1, 3, 7), "late")
 
-    full = group_games_into_weeks([early, late], year)
+    full = group_games_into_weeks([early, late], year, REGULAR_SEASON_START)
     # What a daily run that only fetched March would produce
-    partial = group_games_into_weeks([late], year)
+    partial = group_games_into_weeks([late], year, REGULAR_SEASON_START)
 
     assert [w.number for w in partial] == [w.number for w in full if w.games[0] is late]
     assert partial[0].number == 19
@@ -144,10 +145,10 @@ def test_merge_seasons__repairs_positionally_numbered_weeks() -> None:
     # Both mislabelled week 1, which is exactly the corrupted shape
     saved = Season(weeks=[Week([november, march], 1)], year=year, trouble_params=None)
 
-    merged = merge_seasons([saved])
+    weeks = merge_seasons([saved]).calendar_weeks
 
-    assert [w.number for w in merged.weeks] == [1, 19]
-    assert [g.game_id for w in merged.weeks for g in w.games] == ["nov", "mar"]
+    assert [w.number for w in weeks] == [1, 19]
+    assert [g.game_id for w in weeks for g in w.games] == ["nov", "mar"]
 
 
 class _FakeSeasonCache(SeasonCache):
@@ -221,7 +222,9 @@ async def test_get_ncaabb_season__cache_hit_skips_fetching() -> None:
             _FINISHED_YEAR, NcaabbGender.mens, season_cache=cache
         )
 
-    assert season == cached
+    # Tagged with the season start on the way out, but otherwise untouched
+    assert season == cached.with_season_start(REGULAR_SEASON_START)
+    assert season.weeks == cached.weeks
     mock_get_games.assert_not_awaited()
     assert cache.saved == []
 

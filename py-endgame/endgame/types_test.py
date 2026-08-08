@@ -115,3 +115,118 @@ def test_iter_weeks_can_skip_validation() -> None:
     )
 
     assert len(list(iter_weeks(season, validate=False))) == 2
+
+
+# A football season, so the weeks that come back from the source aren't
+# chronological and have to be rebuilt from the game dates.
+_FB_START = (8, 20)
+
+
+def _fb_game(month: int, day: int, game_id: str, year: int = 2021) -> Game:
+    return _game(day, game_id, month=month, year=year)
+
+
+def test_calendar_weeks_numbers_from_the_season_start() -> None:
+    # Week 1 is the week containing Aug 20, so the first Saturday of the
+    # season is week 1 no matter which week number the source gave it.
+    opener = Week([_fb_game(8, 21, "opener")], 1)
+    season = Season([opener], 2021, None, _FB_START)
+
+    assert [w.number for w in season.calendar_weeks] == [1]
+
+
+def test_calendar_weeks_splits_out_a_mislabelled_straggler() -> None:
+    """The 2021 shape: ESPN put one Oct 30 game in week 8 with the Oct 20-24 games."""
+    week_8 = Week(
+        [
+            _fb_game(10, 23, "saturday"),
+            _fb_game(10, 20, "midweek"),
+            _fb_game(10, 30, "straggler"),
+        ],
+        8,
+    )
+    season = Season([week_8], 2021, None, _FB_START)
+
+    weeks = season.calendar_weeks
+
+    assert [[g.game_id for g in w.games] for w in weeks] == [
+        ["midweek", "saturday"],
+        ["straggler"],
+    ]
+    assert [w.number for w in weeks] == [10, 11]
+    # The week as ESPN labelled it is left alone, so a game can still be
+    # traced back to the request that fetched it.
+    assert [w.number for w in season.weeks] == [8]
+
+
+def test_calendar_weeks_splits_a_month_long_postseason() -> None:
+    """The whole postseason comes back as a single week that runs into January."""
+    postseason = Week(
+        [
+            _fb_game(12, 4, "conference_championship"),
+            _fb_game(12, 11, "semifinal"),
+            _fb_game(12, 18, "early_bowl"),
+            _fb_game(1, 10, "title", year=2022),
+        ],
+        17,
+    )
+    season = Season([postseason], 2021, None, _FB_START)
+
+    weeks = season.calendar_weeks
+
+    assert [[g.game_id for g in w.games] for w in weeks] == [
+        ["conference_championship"],
+        ["semifinal"],
+        ["early_bowl"],
+        ["title"],
+    ]
+    assert [w.number for w in weeks] == [16, 17, 18, 22]
+
+
+def test_calendar_weeks_pools_games_from_every_source_week() -> None:
+    # A cross-division game comes back under more than one request, and the
+    # copies aren't guaranteed to be identical -- the last one wins.
+    fbs = Week([_fb_game(9, 4, "shared")], 2)
+    fcs = Week([_fb_game(9, 4, "shared")._replace(home_score=99)], 2)
+    season = Season([fbs, fcs], 2021, None, _FB_START)
+
+    (week,) = season.calendar_weeks
+
+    assert [g.game_id for g in week.games] == ["shared"]
+    assert week.games[0].home_score == 99
+
+
+def test_calendar_weeks_needs_a_season_start() -> None:
+    season = Season([Week([_game(6)], 1)], 2023)
+
+    with pytest.raises(ValueError, match="season_start"):
+        _ = season.calendar_weeks
+
+
+def test_iter_weeks_regroups_overlapping_source_weeks() -> None:
+    """The 2021 overlap: the postseason bucket straddles regular season week 15.
+
+    Sorting can't fix this -- week 17 starts before week 15 and ends a month
+    after it -- so the weeks have to be rebuilt from the game dates.
+    """
+    postseason = Week([_fb_game(12, 4, "bowl"), _fb_game(1, 10, "title", 2022)], 17)
+    fcs_playoffs = Week([_fb_game(12, 11, "fcs_semifinal")], 15)
+    season = Season([postseason, fcs_playoffs], 2021, None, _FB_START)
+
+    weeks = list(iter_weeks(season))
+
+    assert [[g.game_id for g in w.games] for w in weeks] == [
+        ["bowl"],
+        ["fcs_semifinal"],
+        ["title"],
+    ]
+    # ...and the season as fetched is still the overlapping mess ESPN sent
+    with pytest.raises(OverlappingWeeksError):
+        check_weeks_dont_overlap(season.weeks_in_order)
+
+
+def test_iter_weeks_walks_source_weeks_without_a_season_start() -> None:
+    """A league whose own week numbers are chronological is left alone."""
+    season = Season([Week([_game(13)], 2), Week([_game(6)], 1)], 2023)
+
+    assert [w.number for w in iter_weeks(season)] == [1, 2]
