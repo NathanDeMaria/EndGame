@@ -10,16 +10,17 @@ from endgame.ncaabb import NcaabbGender, get_plays_for_day
 from endgame.ncaabb.box_score.all import get_season_box_scores
 from endgame.ncaabb.matchup import apply_in_parallel, get_possessions, logger
 from endgame.ncaabb.ncaabb import (
+    REGULAR_SEASON_START,
     Season,
     get_ncaabb_season,
     get_ncaabb_spreads,
-    group_games_into_weeks,
 )
 from endgame.ncaabb.possession_side import PossessionSide
 from endgame.ncaafb import get_current_odds as get_ncaafb_current_odds
 from endgame.ncaafb import get_season as get_ncaafb_season
 from endgame.nfl.games import get_current_odds as get_nfl_current_odds
 from endgame.nfl.games import get_season as get_nfl_season
+from endgame.types import group_games_into_weeks, iter_weeks
 from fire import Fire
 
 from endgame_aws import (
@@ -90,7 +91,9 @@ async def box_scores(gender_name: str, year: int):
     rows_so_far = await _load_possessions(_CONFIG.bucket, year, gender)
     rows: list[dict] = [r.to_dict() for r in rows_so_far]
     pulled_game_ids = {side.game_id for side in rows_so_far}
-    for week in season.weeks:
+    # A week at a time, so the work is batched (and logged) in chunks
+    # rather than firing off a whole season's games at once.
+    for week in iter_weeks(season):
         args = [
             (gender, game.game_id)
             for game in week.games
@@ -175,10 +178,13 @@ async def regroup_ncaabb_weeks(dry_run: bool = True) -> None:
         regrouped = [
             Season(
                 group_games_into_weeks(
-                    (game for week in season.weeks for game in week.games), year
+                    (game for week in season.weeks for game in week.games),
+                    year,
+                    REGULAR_SEASON_START,
                 ),
                 season.year,
                 season.trouble_params,
+                REGULAR_SEASON_START,
             )
             for season in seasons
         ]
