@@ -20,7 +20,9 @@ from endgame.ncaafb import get_current_odds as get_ncaafb_current_odds
 from endgame.ncaafb import get_season as get_ncaafb_season
 from endgame.nfl.games import get_current_odds as get_nfl_current_odds
 from endgame.nfl.games import get_season as get_nfl_season
+from endgame.nhl import get_nhl_odds, get_nhl_season
 from endgame.types import group_games_into_weeks, iter_weeks
+from endgame.wnba import get_wnba_odds, get_wnba_season
 from fire import Fire
 
 from endgame_aws import (
@@ -51,9 +53,9 @@ def _build_box_score_key(year: int, gender: NcaabbGender) -> str:
     return f"seasons/{year}/{gender.name}_box.csv"
 
 
-async def _load_season(bucket: str, year: int, gender: NcaabbGender) -> Season | None:
+async def _load_season(bucket: str, key: str) -> Season | None:
     try:
-        seasons = await read_seasons(bucket, _build_season_key(year, gender))
+        seasons = await read_seasons(bucket, key)
         return seasons[0]
     except S3NotFoundException:
         return None
@@ -79,7 +81,7 @@ async def _load_box_scores(
 
 async def box_scores(gender_name: str, year: int):
     gender = NcaabbGender[gender_name]
-    season_so_far = await _load_season(_CONFIG.bucket, year, gender)
+    season_so_far = await _load_season(_CONFIG.bucket, _build_season_key(year, gender))
     season = await get_ncaabb_season(year, gender, season_so_far)
     await save_to_s3([season], _CONFIG.bucket, _build_season_key(year, gender))
 
@@ -138,18 +140,36 @@ async def box_scores(gender_name: str, year: int):
     )
 
 
+@dataclass
+class _GamesLeague:
+    # `season_so_far` is only useful for leagues pulled a day at a time
+    # (nhl, wnba): the job starts with an empty web cache, so handing it
+    # what's already in S3 means a run picks up from the last day it has
+    # instead of walking the whole season again. nfl/ncaafb are pulled a
+    # week at a time and don't take one.
+    get_season: Callable[[int, Season | None], Awaitable[Season]]
+    incremental: bool = False
+
+
 # Leagues whose games are a single "get the season, save it" pull.
 # ncaabb isn't here: its `box_scores` command also pulls possessions/box
 # scores, so it stays a separate, bigger pipeline.
-_GAMES_LEAGUES: dict[str, Callable[[int], Awaitable[Season]]] = {
-    "nfl": get_nfl_season,
-    "ncaafb": get_ncaafb_season,
+_GAMES_LEAGUES: dict[str, _GamesLeague] = {
+    "nfl": _GamesLeague(get_season=lambda year, _so_far: get_nfl_season(year)),
+    "ncaafb": _GamesLeague(get_season=lambda year, _so_far: get_ncaafb_season(year)),
+    "nhl": _GamesLeague(get_season=get_nhl_season, incremental=True),
+    "wnba": _GamesLeague(get_season=get_wnba_season, incremental=True),
 }
 
 
 async def games(league: str, year: int) -> None:
-    season = await _GAMES_LEAGUES[league](year)
-    await save_to_s3([season], _CONFIG.bucket, f"seasons/{year}/{league}.pkl")
+    games_league = _GAMES_LEAGUES[league]
+    key = f"seasons/{year}/{league}.pkl"
+    season_so_far = (
+        await _load_season(_CONFIG.bucket, key) if games_league.incremental else None
+    )
+    season = await games_league.get_season(year, season_so_far)
+    await save_to_s3([season], _CONFIG.bucket, key)
 
 
 _NCAABB_SEASON_KEY_RE = re.compile(r"^seasons/(\d+)/(mens|womens)\.pkl$")
@@ -217,8 +237,9 @@ def _parse_date(date_str: str | None) -> date:
 
 @dataclass
 class _OddsLeague:
-    # `day` is only meaningful for ncaabb, which is scheduled by day rather
-    # than by week; nfl/ncaafb just return whatever ESPN calls "this week".
+    # `day` is only meaningful for the leagues scheduled by day rather than
+    # by week (ncaabb, nhl, wnba); nfl/ncaafb just return whatever ESPN
+    # calls "this week".
     get_odds: Callable[[date], AsyncIterator[EspnOdds]]
 
 
@@ -226,6 +247,8 @@ _ODDS_LEAGUES: dict[str, _OddsLeague] = {
     "ncaabb": _OddsLeague(get_odds=get_ncaabb_spreads),
     "nfl": _OddsLeague(get_odds=lambda _day: get_nfl_current_odds()),
     "ncaafb": _OddsLeague(get_odds=lambda _day: get_ncaafb_current_odds()),
+    "nhl": _OddsLeague(get_odds=get_nhl_odds),
+    "wnba": _OddsLeague(get_odds=get_wnba_odds),
 }
 
 
