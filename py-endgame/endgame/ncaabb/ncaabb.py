@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from enum import Enum
 from logging import getLogger
 from typing import AsyncIterator, Iterable, List, NamedTuple
@@ -7,7 +7,8 @@ import aiohttp
 
 from ..async_tools import apply_in_parallel
 from ..constants import ESPN_SPORTS_API_BASE
-from ..date import get_end_year
+from ..date import date_range as _date_range
+from ..date import get_end_year, is_between_dates
 from ..espn_games import get_games, save_seasons
 from ..espn_odds import Odds, get_odds
 from ..season_cache import SeasonCache
@@ -185,11 +186,6 @@ def merge_seasons(seasons: List[Season]) -> Season:
     return _build_season(games.values(), seasons[0].year, list(trouble_params))
 
 
-def _date_range(start: date, end: date) -> List[date]:
-    days = (end - start).days
-    return [start + timedelta(days=offset) for offset in range(days)]
-
-
 async def get_ncaabb_games(
     game_date: date, gender: NcaabbGender, group: NcaabbGroup
 ) -> List[Game]:
@@ -223,24 +219,6 @@ async def _get_ncaabb_odds(
     odds = get_odds(NCAABB_SCOREBOARD.format(gender.name), parameters)
     async for odd in odds:
         yield odd
-
-
-def is_between_dates(
-    day: date, month_day_start: tuple[int, int], month_day_end: tuple[int, int]
-) -> bool:
-    """
-    Checks if a given date is between a start and end date (inclusive).
-    Handles ranges that wrap around the year end (e.g. start > end).
-    """
-    day_tuple = (day.month, day.day)
-
-    if month_day_start <= month_day_end:
-        # Standard range within the same year
-        return month_day_start <= day_tuple <= month_day_end
-    # Range wraps around the new year (e.g. Nov to Mar)
-    # It's in the range if it's after the start date (late in the year)
-    # OR before the end date (early in the year)
-    return day_tuple >= month_day_start or day_tuple <= month_day_end
 
 
 async def get_ncaabb_spreads(day: date) -> AsyncIterator[Odds]:

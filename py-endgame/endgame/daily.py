@@ -1,0 +1,260 @@
+"""
+Leagues that are pulled a day at a time.
+
+The NHL and the WNBA both play on a schedule that ESPN only exposes by
+date: there's no week parameter to ask for the way there is for the NFL,
+and no group codes to separate the postseason the way NCAABB needs. So a
+season is a walk over its calendar days, and the weeks the .csv ends up
+with are rebuilt from the game dates by `Season.calendar_weeks`.
+
+NCAABB works the same way but has enough of its own shape (genders,
+tournament groups, possessions, box scores) that it stays on its own code.
+"""
+
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
+from logging import getLogger
+from typing import AsyncIterator, Callable, Iterable, List, Optional, Tuple
+
+import aiohttp
+
+from .async_tools import apply_in_parallel
+from .date import date_range, is_between_dates
+from .espn_games import get_games, save_seasons
+from .espn_odds import Odds, get_odds
+from .season_cache import SeasonCache
+from .types import Game, Season, SeasonStart, Week
+from .web import RequestParameters
+
+logger = getLogger(__name__)
+
+
+def _keep_name(name: str) -> str:
+    return name
+
+
+@dataclass(frozen=True)
+class DailyLeague:
+    """
+    Everything that differs between two leagues pulled a day at a time.
+    """
+
+    # Used for the season cache directory, the S3 key and the .csv name
+    name: str
+    scoreboard_url: str
+    # The (month, day) week 1 of a season contains, and the (month, day)
+    # the season is over by. A season is named for the calendar year it
+    # starts in, the way the NFL's 2019 season ends in 2020.
+    season_start: SeasonStart
+    season_end: Tuple[int, int]
+    # 1 when a season runs into the next calendar year (the NHL's October
+    # to June), 0 when it starts and finishes in the same one (the WNBA's
+    # May to October). Everything that turns a season year into real dates
+    # goes through this.
+    end_year_offset: int
+    # Earliest season worth asking ESPN for
+    first_year: int
+    # ESPN hands back the occasional "completed" game with no score at all,
+    # which NCAABB drops. That's only safe for leagues that can't actually
+    # finish 0-0 -- the NHL played to ties before 2005-06, so a 0-0 final
+    # there is a real result.
+    drop_scoreless: bool
+    # Franchises that ESPN lists under more than one name over the years,
+    # collapsed onto the current one so a team is one team across seasons
+    rename_team: Callable[[str], str] = field(default=_keep_name)
+
+    def start_date(self, year: int) -> date:
+        """
+        The first day of the `year` season worth asking for.
+        """
+        return date(year, *self.season_start)
+
+    def end_date(self, year: int) -> date:
+        """
+        The day the `year` season is over by (exclusive).
+        """
+        return date(year + self.end_year_offset, *self.season_end)
+
+    def is_finished(self, year: int) -> bool:
+        """
+        Whether the `year` season is over, and so safe to cache.
+        """
+        end = datetime(
+            year + self.end_year_offset, *self.season_end, tzinfo=timezone.utc
+        )
+        return datetime.now(timezone.utc) > end
+
+    def is_in_season(self, day: date) -> bool:
+        """
+        Whether `day` falls in the stretch of the year this league plays in.
+        """
+        return is_between_dates(day, self.season_start, self.season_end)
+
+    def latest_year(self) -> int:
+        """
+        The most recent season worth asking for: the last one that's started.
+
+        `get_end_year` can't answer this for both leagues -- it assumes a
+        season spans two calendar years -- and asking by start date works
+        either way.
+        """
+        today = date.today()
+        started = (today.month, today.day) >= self.season_start
+        return today.year if started else today.year - 1
+
+
+async def update(league: DailyLeague, location: Optional[str] = None) -> None:
+    """
+    Update a league's .csv with every season we can get.
+    """
+    if location is None:
+        location = f"{league.name}.csv"
+    seasons = await get_seasons(league)
+    # Games go into a season the way they were fetched -- by day -- so group
+    # them into weeks for the .csv's week column.
+    save_seasons([s._replace(weeks=s.calendar_weeks) for s in seasons], location)
+
+
+async def get_seasons(league: DailyLeague) -> List[Season]:
+    """
+    Get every season of a league.
+    """
+    args = [(y,) for y in range(league.first_year, league.latest_year() + 1)]
+    return [s async for s in apply_in_parallel(lambda y: get_season(league, y), args)]
+
+
+async def get_season(
+    league: DailyLeague,
+    year: int,
+    season_so_far: Optional[Season] = None,
+    season_cache: Optional[SeasonCache] = None,
+) -> Season:
+    """
+    Get a season, a day at a time.
+
+    Pass `season_so_far` to pick up from the last day it already has rather
+    than walking the season from the top. That's what makes a daily run
+    cheap for a job that starts with an empty web cache.
+    """
+    logger.info("Getting %s season %d", league.name, year)
+    cache = season_cache or SeasonCache(league.name)
+    cached = cache.check_cache(year)
+    if cached:
+        return cached.with_season_start(league.season_start)
+
+    start = _last_day_so_far(season_so_far) or league.start_date(year)
+    # Don't try to get dates in the future
+    end = min(league.end_date(year), date.today())
+
+    games: List[Game] = []
+    trouble_days: List[date] = []
+    for day in date_range(start, end):
+        try:
+            games += await get_daily_games(league, day)
+        except aiohttp.ClientResponseError:
+            logger.warning("Marking %s for %s as trouble", day, league.name)
+            trouble_days.append(day)
+
+    season = _build_season(league, games, year, trouble_days)
+    if season_so_far:
+        season = merge_seasons(league, [season_so_far, season])
+
+    if league.is_finished(year):
+        cache.save_to_cache(season)
+
+    return season
+
+
+def merge_seasons(league: DailyLeague, seasons: List[Season]) -> Season:
+    """
+    Fold seasons of the same year together, keeping the latest copy of a
+    game that shows up in more than one of them.
+    """
+    assert all(s.year == seasons[0].year for s in seasons)
+
+    games: dict[str, Game] = {}
+    for season in seasons:
+        for week in season.weeks:
+            for game in week.games:
+                games[game.game_id] = game
+
+    trouble_params = set(sum((s.trouble_params or [] for s in seasons), []))
+
+    return _build_season(
+        league, games.values(), seasons[0].year, sorted(trouble_params)
+    )
+
+
+def _build_season(
+    league: DailyLeague, games: Iterable[Game], year: int, trouble_params: List
+) -> Season:
+    """
+    Put a season's games together the way they were fetched.
+
+    These leagues are pulled a day at a time, so there's no week grouping in
+    the source to keep: the games go in as one lot, and
+    `season.calendar_weeks` builds the weeks from the game dates on the way
+    out.
+    """
+    return Season(
+        [Week(sorted(games, key=lambda g: g.date), 1)],
+        year,
+        trouble_params,
+        league.season_start,
+    )
+
+
+def _last_day_so_far(season_so_far: Optional[Season]) -> Optional[date]:
+    if season_so_far is None:
+        return None
+    # Might get the most recent day's games again unnecessarily.
+    # That's fine because we don't know if all the games
+    # for that day were done last time this was run.
+    last_day_done = max(
+        (g.date for w in season_so_far.weeks for g in w.games), default=None
+    )
+    if last_day_done is None:
+        return None
+    return last_day_done.date()
+
+
+def _day_parameters(day: date) -> RequestParameters:
+    return dict(
+        lang="en",
+        region="us",
+        calendartype="blacklist",
+        limit=300,
+        dates=day.strftime("%Y%m%d"),
+    )
+
+
+async def get_daily_games(league: DailyLeague, day: date) -> List[Game]:
+    """
+    Get a single day's completed games.
+    """
+    logger.info("Getting %s games for %s", league.name, day)
+    games = await get_games(league.scoreboard_url, _day_parameters(day))
+    games = [_rename_teams(league, g) for g in games]
+    if league.drop_scoreless:
+        games = [g for g in games if g.home_score > 0 or g.away_score > 0]
+    return games
+
+
+async def get_daily_odds(league: DailyLeague, day: date) -> AsyncIterator[Odds]:
+    """
+    Get the odds on a day's games, or nothing at all if the league isn't
+    playing then.
+    """
+    if not league.is_in_season(day):
+        logger.info("%s isn't in season on %s, skipping odds", league.name, day)
+        return
+    logger.info("Getting %s odds for %s", league.name, day)
+    async for odd in get_odds(league.scoreboard_url, _day_parameters(day)):
+        yield odd
+
+
+def _rename_teams(league: DailyLeague, game: Game) -> Game:
+    game_dict = game.to_dict()
+    game_dict["away"] = league.rename_team(game_dict["away"])
+    game_dict["home"] = league.rename_team(game_dict["home"])
+    return Game(**game_dict)
