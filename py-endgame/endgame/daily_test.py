@@ -16,7 +16,7 @@ from .types import Game, Season, Week
 from .wnba import WNBA
 
 # Seasons that are long over, so nothing gets clamped to today's date
-_FINISHED_NHL_YEAR = 2015
+_FINISHED_NHL_YEAR = 2015  # an ordinary season, no COVID dates
 _FINISHED_WNBA_YEAR = 2015
 
 
@@ -116,8 +116,51 @@ def test_wnba_latest_year(today: date, expected: int) -> None:
 
 
 def test_nhl_season_runs_into_the_next_year() -> None:
-    assert NHL.start_date(2019) == date(2019, 9, 15)
-    assert NHL.end_date(2019) == date(2020, 7, 15)
+    assert NHL.start_date(2018) == date(2018, 9, 15)
+    assert NHL.end_date(2018) == date(2019, 7, 15)
+
+
+def test_covid_seasons_get_their_real_dates() -> None:
+    """2019-20 finished in the Toronto bubble on 2020-09-28.
+
+    The usual window ends in July, so those playoff games sat outside
+    2019 entirely and inside the days 2020 would otherwise start on.
+    """
+    assert NHL.end_date(2019) > date(2020, 9, 28)
+    # 2020-21 didn't open until 2021-01-13
+    assert NHL.start_date(2020) > date(2020, 10, 1)
+    assert NHL.start_date(2020) <= date(2021, 1, 13)
+
+
+@pytest.mark.parametrize("league", [NHL, WNBA], ids=lambda league: league.name)
+def test_no_season_overlaps_the_next(league: DailyLeague) -> None:
+    """A day belongs to one season, or the same game lands in two files."""
+    for year in range(league.first_year, 2030):
+        assert league.end_date(year) <= league.start_date(year + 1), year
+
+
+def test_covid_seasons_are_finished() -> None:
+    """`is_finished` has to follow the real end date, not the window.
+
+    Caching 2019 in, say, August 2020 would have frozen a season whose
+    playoffs hadn't been played yet.
+    """
+    assert NHL.is_finished(2019)
+    assert NHL.is_finished(2020)
+
+
+@pytest.mark.parametrize(
+    "day, expected",
+    [
+        # The bubble playoffs, which the September-to-July window misses
+        pytest.param(date(2020, 8, 20), True, id="bubble-playoffs"),
+        pytest.param(date(2020, 9, 28), True, id="bubble-final"),
+        # A normal August, with no season listed as running through it
+        pytest.param(date(2018, 8, 20), False, id="ordinary-august"),
+    ],
+)
+def test_is_in_season_covers_the_covid_playoffs(day: date, expected: bool) -> None:
+    assert NHL.is_in_season(day) == expected
 
 
 def test_wnba_season_stays_inside_one_year() -> None:

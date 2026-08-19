@@ -7,6 +7,7 @@ import pytest
 from multidict import CIMultiDict, CIMultiDictProxy
 from yarl import URL
 
+from ..date import date_range
 from ..season_cache import SeasonCache
 from ..types import group_games_into_weeks
 from . import ncaabb as ncaabb_module
@@ -22,7 +23,6 @@ from .ncaabb import (
     NcaabbGroup,
     Season,
     Week,
-    _date_range,
     get_ncaabb_season,
     is_between_dates,
     merge_seasons,
@@ -184,12 +184,12 @@ def _expected_day_params(
     """
     expected = {
         DayParams(day, gender, NcaabbGroup.d1)
-        for day in _date_range(regular_start, date(year + 1, *REGULAR_SEASON_END))
+        for day in date_range(regular_start, date(year + 1, *REGULAR_SEASON_END))
     }
     for group in POSTSEASON_GROUPS:
         expected |= {
             DayParams(day, gender, group)
-            for day in _date_range(postseason_start, date(year + 1, *SEASON_END))
+            for day in date_range(postseason_start, date(year + 1, *SEASON_END))
         }
     return expected
 
