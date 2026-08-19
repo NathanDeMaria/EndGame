@@ -12,9 +12,17 @@ tournament groups, possessions, box scores) that it stays on its own code.
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from logging import getLogger
-from typing import AsyncIterator, Callable, Iterable, List, Optional, Tuple
+from typing import (
+    AsyncIterator,
+    Callable,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+)
 
 import aiohttp
 
@@ -62,32 +70,47 @@ class DailyLeague:
     # Franchises that ESPN lists under more than one name over the years,
     # collapsed onto the current one so a team is one team across seasons
     rename_team: Callable[[str], str] = field(default=_keep_name)
+    # Seasons that didn't run when they normally do, as season year ->
+    # (first day, the day it's over by). The shared window is deliberately
+    # loose, but a season that moves by months rather than days can't be
+    # covered by widening it: stretching one season's end past the next
+    # one's start is what puts a game in two seasons' files at once. These
+    # get the real dates instead.
+    odd_seasons: Mapping[int, Tuple[date, date]] = field(default_factory=dict)
 
     def start_date(self, year: int) -> date:
         """
         The first day of the `year` season worth asking for.
         """
-        return date(year, *self.season_start)
+        odd = self.odd_seasons.get(year)
+        return odd[0] if odd else date(year, *self.season_start)
 
     def end_date(self, year: int) -> date:
         """
         The day the `year` season is over by (exclusive).
         """
-        return date(year + self.end_year_offset, *self.season_end)
+        odd = self.odd_seasons.get(year)
+        return odd[1] if odd else date(year + self.end_year_offset, *self.season_end)
 
     def is_finished(self, year: int) -> bool:
         """
         Whether the `year` season is over, and so safe to cache.
         """
-        end = datetime(
-            year + self.end_year_offset, *self.season_end, tzinfo=timezone.utc
-        )
+        end = datetime.combine(self.end_date(year), time.min, tzinfo=timezone.utc)
         return datetime.now(timezone.utc) > end
 
     def is_in_season(self, day: date) -> bool:
         """
-        Whether `day` falls in the stretch of the year this league plays in.
+        Whether `day` falls in a stretch of the year this league plays in.
+
+        A day inside an odd season counts even if it's outside the usual
+        window -- that's the whole reason it's listed. Days the other way
+        round (in the window, but in a year the league started late) are
+        left in: the cost is one request that comes back with no odds,
+        where the cost of dropping a real day is missing data.
         """
+        if any(start <= day < end for start, end in self.odd_seasons.values()):
+            return True
         return is_between_dates(day, self.season_start, self.season_end)
 
     def latest_year(self) -> int:

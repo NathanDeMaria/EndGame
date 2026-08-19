@@ -19,13 +19,24 @@ SCOREBOARD = f"{ESPN_SPORTS_API_BASE}/hockey/nhl/scoreboard"
 # The bounds are deliberately loose -- a couple of weeks either side of the
 # usual October-to-June season, since openers and Cup finals move around --
 # and days with no games just come back empty.
-#
-# The one season this doesn't cover is 2019: COVID pushed its playoffs to
-# August and September of 2020, past the end here, and into the window the
-# 2020 season starts on. Those games land in the 2020 season's file rather
-# than 2019's.
 SEASON_START = (9, 15)
 SEASON_END = (7, 15)
+
+# The two seasons COVID moved, which the window above can't stretch to
+# reach: 2019's playoffs ran past its end and into the days 2020 would
+# otherwise start on, so widening 2019 alone would pull the bubble games
+# into both seasons' files. Given as real dates instead.
+#
+# 2019-20 paused on March 12th 2020 and resumed in the Edmonton and
+# Toronto bubbles, ending with game 6 of the final on September 28th.
+# 2020-21 then opened late, on January 13th 2021, and finished July 7th.
+#
+# The 2004-05 lockout (no season at all) and the 2012-13 one (January to
+# June, inside the usual window) don't need an entry.
+ODD_SEASONS = {
+    2019: (date(2019, 9, 15), date(2020, 10, 1)),
+    2020: (date(2021, 1, 1), date(2021, 7, 15)),
+}
 
 
 def _rename_team(name: str) -> str:
@@ -60,6 +71,7 @@ NHL = DailyLeague(
     # and scoreless games can't be thrown away as bad data.
     drop_scoreless=False,
     rename_team=_rename_team,
+    odd_seasons=ODD_SEASONS,
 )
 
 

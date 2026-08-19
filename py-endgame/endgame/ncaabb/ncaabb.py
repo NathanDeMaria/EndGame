@@ -7,8 +7,7 @@ import aiohttp
 
 from ..async_tools import apply_in_parallel
 from ..constants import ESPN_SPORTS_API_BASE
-from ..date import date_range as _date_range
-from ..date import get_end_year, is_between_dates
+from ..date import date_range, get_end_year, is_between_dates
 from ..espn_games import get_games, save_seasons
 from ..espn_odds import Odds, get_odds
 from ..season_cache import SeasonCache
@@ -120,14 +119,14 @@ async def get_ncaabb_season(
     end = date(year + 1, *REGULAR_SEASON_END)
     # Don't try to get dates in the future
     end = min(end, date.today())
-    for day in _date_range(start, end):
+    for day in date_range(start, end):
         day_params.append(DayParams(day, gender, NcaabbGroup.d1))
     start = _last_day_so_far(season_so_far) or date(year + 1, *POST_SEASON_START)
     end = date(year + 1, *SEASON_END)
     # Don't try to get dates in the future
     end = min(end, date.today())
     for group in POSTSEASON_GROUPS:
-        for day in _date_range(start, end):
+        for day in date_range(start, end):
             day_params.append(DayParams(day, gender, group))
     # TODO: consider having season_so_far.trouble_params re-checked
     games: List[Game] = []
