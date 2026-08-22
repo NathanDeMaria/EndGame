@@ -53,3 +53,8 @@ COPY profile.sh /root/profile.sh
 RUN echo ". /root/profile.sh" >> "/root/.bashrc"
 
 RUN endgame -- --completion bash > ~/.endgame-completion.sh && echo ". ~/.endgame-completion.sh" >> "/root/.bashrc"
+
+# `endgame-aws` can't do the same at build time: it's the root package, which
+# `poetry install --no-root` above skips deliberately (the source isn't in the
+# image, it's the workspace mount). postStartCommand writes the script instead.
+RUN echo 'if [ -f ~/.endgame-aws-completion.sh ]; then . ~/.endgame-aws-completion.sh; fi' >> "/root/.bashrc"
