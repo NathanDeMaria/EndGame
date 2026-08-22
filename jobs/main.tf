@@ -3,28 +3,16 @@ provider "aws" {
 }
 
 locals {
-  current_month = tonumber(formatdate("M", timestamp()))
-  current_year  = tonumber(formatdate("YYYY", timestamp()))
-  # If before August (8), use previous year as season year.
-  # TODO: will need to pass in the year in the future
-  # this locks on the date of deploy
-  season_year = local.current_month < 8 ? tostring(local.current_year - 1) : tostring(local.current_year)
-
-  # The WNBA is the one league whose season sits inside a single calendar
-  # year (May to October), so the "before August means last year" rule that
-  # names the other seasons doesn't apply to it.
-  wnba_season_year = tostring(local.current_year)
-
   # ncaabb's `box_scores` command also pulls possessions/box scores, so it
   # stays its own command instead of going through the generic `games`
   # command that the rest use.
   games_jobs = {
-    mens   = ["box_scores", "mens", local.season_year]
-    womens = ["box_scores", "womens", local.season_year]
-    nfl    = ["games", "nfl", local.season_year]
-    ncaafb = ["games", "ncaafb", local.season_year]
-    nhl    = ["games", "nhl", local.season_year]
-    wnba   = ["games", "wnba", local.wnba_season_year]
+    mens   = ["box_scores", "mens", var.season_year]
+    womens = ["box_scores", "womens", var.season_year]
+    nfl    = ["games", "nfl", var.season_year]
+    ncaafb = ["games", "ncaafb", var.season_year]
+    nhl    = ["games", "nhl", var.season_year]
+    wnba   = ["games", "wnba", var.wnba_season_year]
   }
 
   odds_leagues = ["ncaabb", "nfl", "ncaafb", "nhl", "wnba"]
