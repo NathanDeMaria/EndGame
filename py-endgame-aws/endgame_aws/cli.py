@@ -170,7 +170,12 @@ async def games(league: str, year: int) -> None:
     )
     season = await games_league.get_season(year, season_so_far)
     await save_to_s3([season], _CONFIG.bucket, key)
-    logger.info("Saved %d games for %s %d", sum(len(w.games) for w in season.weeks), league, year)
+    logger.info(
+        "Saved %d games for %s %d",
+        sum(len(w.games) for w in season.weeks),
+        league,
+        year,
+    )
 
 
 _NCAABB_SEASON_KEY_RE = re.compile(r"^seasons/(\d+)/(mens|womens)\.pkl$")
@@ -278,7 +283,9 @@ async def plays(league: str, day: str | None = None) -> None:
     all_plays = [plays async for plays in pbps]
     async with get_pbp_store() as store:
         await store.save(all_plays, parsed_date, NcaabbGender[league])
-    logger.info("Saved pbp for %d games for %s on %s.", len(all_plays), league, parsed_date)
+    logger.info(
+        "Saved pbp for %d games for %s on %s.", len(all_plays), league, parsed_date
+    )
 
 
 def main():
