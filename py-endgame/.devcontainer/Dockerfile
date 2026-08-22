@@ -15,5 +15,9 @@ ENV PATH="${POETRY_HOME}/bin:$PATH"
 COPY profile.sh /root/profile.sh
 RUN echo ". profile.sh" >> "/root/.bashrc"
 
+# The completion script itself is written by postStartCommand, since `endgame`
+# isn't installed until postCreateCommand runs `poetry install`.
+RUN echo 'if [ -f ~/.endgame-completion.sh ]; then . ~/.endgame-completion.sh; fi' >> "/root/.bashrc"
+
 COPY poetry.* ./
 COPY pyproject.toml ./

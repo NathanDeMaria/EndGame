@@ -45,5 +45,6 @@
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.endgame/cache,target=/root/.endgame/cache,type=bind,consistency=cached",
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude,target=/root/.claude,type=bind,consistency=cached"
   ],
-  "postCreateCommand": "poetry install"
+  "postCreateCommand": "poetry install",
+  "postStartCommand": "endgame -- --completion bash > ~/.endgame-completion.sh"
 }
