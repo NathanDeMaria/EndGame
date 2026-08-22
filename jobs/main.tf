@@ -3,6 +3,13 @@ provider "aws" {
 }
 
 locals {
+  # The account's Batch stack owns the job queue and the data bucket, and its
+  # state is the source of truth for both. Reading them from there rather than
+  # re-declaring them here means there's nothing to keep in sync by hand, and
+  # a rename over there fails this plan instead of a 8am job.
+  job_queue_arn  = data.terraform_remote_state.batch.outputs.job_queue_arn
+  s3_bucket_name = data.terraform_remote_state.batch.outputs.bucket
+
   # ncaabb's `box_scores` command also pulls possessions/box scores, so it
   # stays its own command instead of going through the generic `games`
   # command that the rest use.
@@ -34,7 +41,7 @@ module "daily_games" {
   execution_role_arn  = aws_iam_role.batch_execution_role.arn
   job_role_arn        = aws_iam_role.batch_job_role.arn
   scheduler_role_arn  = aws_iam_role.scheduler_role.arn
-  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  job_queue_arn       = local.job_queue_arn
   schedule_expression = var.schedule_expression
   schedule_timezone   = var.schedule_timezone
 }
@@ -49,7 +56,7 @@ module "odds" {
   execution_role_arn  = aws_iam_role.batch_execution_role.arn
   job_role_arn        = aws_iam_role.batch_job_role.arn
   scheduler_role_arn  = aws_iam_role.scheduler_role.arn
-  job_queue_arn       = data.aws_batch_job_queue.this.arn
+  job_queue_arn       = local.job_queue_arn
   schedule_expression = "cron(0 10-22 * * ? *)"
   schedule_timezone   = var.schedule_timezone
 }
@@ -116,8 +123,8 @@ resource "aws_iam_policy" "batch_job_s3_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::${var.s3_bucket_name}",
-          "arn:aws:s3:::${var.s3_bucket_name}/*"
+          "arn:aws:s3:::${local.s3_bucket_name}",
+          "arn:aws:s3:::${local.s3_bucket_name}/*"
         ]
       }
     ]
@@ -132,8 +139,16 @@ resource "aws_iam_role_policy_attachment" "batch_job_s3_policy_attach" {
 # ------------------------------------------------------------------------------
 # Data Lookups
 # ------------------------------------------------------------------------------
-data "aws_batch_job_queue" "this" {
-  name = var.batch_job_queue_name
+# `batch-state` is the aws-batch-optimization stack, in this same account and
+# state bucket. It already exports the queue and bucket, so this repo doesn't
+# take them as variables at all.
+data "terraform_remote_state" "batch" {
+  backend = "s3"
+  config = {
+    bucket = "nathan-terraform"
+    key    = "batch-state"
+    region = "us-east-2"
+  }
 }
 
 data "aws_caller_identity" "current" {}
@@ -170,7 +185,7 @@ resource "aws_iam_policy" "scheduler_policy" {
         Effect = "Allow"
         Action = "batch:SubmitJob"
         Resource = [
-          data.aws_batch_job_queue.this.arn,
+          local.job_queue_arn,
           "arn:aws:batch:${var.aws_region}:${data.aws_caller_identity.current.account_id}:job-definition/*"
         ]
       }
@@ -205,7 +220,7 @@ resource "aws_cloudwatch_event_rule" "batch_failure" {
     detail-type = ["Batch Job State Change"]
     detail = {
       status   = ["FAILED"]
-      jobQueue = [data.aws_batch_job_queue.this.arn]
+      jobQueue = [local.job_queue_arn]
     }
   })
 

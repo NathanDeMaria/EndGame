@@ -3,11 +3,6 @@ variable "aws_region" {
   type        = string
 }
 
-variable "batch_job_queue_name" {
-  description = "The name of the AWS Batch Job Queue"
-  type        = string
-}
-
 variable "ecr_repository_url" {
   description = "The URL of the ECR repository"
   type        = string
@@ -56,11 +51,6 @@ variable "schedule_timezone" {
   description = "The timezone for the schedule"
   type        = string
   default     = "America/Chicago"
-}
-
-variable "s3_bucket_name" {
-  description = "The name of the S3 bucket to write to"
-  type        = string
 }
 
 variable "notification_email" {

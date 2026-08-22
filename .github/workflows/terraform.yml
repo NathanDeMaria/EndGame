@@ -27,13 +27,13 @@ env:
   TF_IN_AUTOMATION: "1"
   AWS_REGION: us-east-2
   # The tfvars file `make plan`/`make apply` reads locally is gitignored, so
-  # CI supplies the same values as TF_VAR_*. `ecr_repository_url` reuses the
-  # IMAGE_URL secret the docker push already uses -- it's the same untagged
-  # repository URL, and terraform appends `:${var.image_tag}` itself.
+  # CI supplies the remaining values as TF_VAR_*. The job queue and the data
+  # bucket aren't here: they come from the Batch stack's remote state.
+  # `ecr_repository_url` reuses the IMAGE_URL secret the docker push already
+  # uses -- it's the same untagged repository URL, and terraform appends
+  # `:${var.image_tag}` itself.
   TF_VAR_aws_region: us-east-2
   TF_VAR_ecr_repository_url: ${{ secrets.IMAGE_URL }}
-  TF_VAR_batch_job_queue_name: ${{ vars.BATCH_JOB_QUEUE_NAME }}
-  TF_VAR_s3_bucket_name: ${{ vars.S3_BUCKET_NAME }}
   TF_VAR_notification_email: ${{ secrets.NOTIFICATION_EMAIL }}
 
 jobs:
