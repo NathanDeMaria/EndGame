@@ -153,6 +153,8 @@ data "terraform_remote_state" "batch" {
 
 data "aws_caller_identity" "current" {}
 
+data "aws_partition" "current" {}
+
 
 # ------------------------------------------------------------------------------
 # IAM Role for Scheduler
