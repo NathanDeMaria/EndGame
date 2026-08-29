@@ -76,14 +76,32 @@ def _week_params(year: int) -> List[WeekParams]:
     return week_params
 
 
-async def get_season(year: int) -> Season:
+async def get_season(
+    year: int,
+    # Keyword-only so the positional signature stays `(year,)`, which is what
+    # `apply_in_parallel` unpacks its arg tuples into.
+    *,
+    use_cache: bool = True,
+    season_cache: SeasonCache | None = None,
+) -> Season:
     """
     Get the games from a season of NCAAFB
+
+    `use_cache=False` neither reads nor writes the season cache, for a
+    caller that is re-pulling precisely because what's cached is known to
+    be incomplete. That is not hypothetical: the cache is written for
+    every season that has ended, so a machine that has ever pulled these
+    years has one, and `backfill_week_zero` -- whose whole job is to fetch
+    the week 0 those cached seasons predate -- got an instant cache hit
+    and reported that every season gained nothing.
+
+    Note it leaves the cache alone rather than refreshing it, so a dry run
+    stays a dry run. Delete `~/.endgame/cache/season/ncaafb/` (or
+    `$ENDGAME_CACHE_DIR`) if you want local pulls corrected too.
     """
     logger.info("Getting NCAA season %s", year)
-    cache = SeasonCache("ncaafb")
-    season = cache.check_cache(year)
-    # TODO: add an option to ignore the cache if it has any skipped weeks?
+    cache = season_cache or SeasonCache("ncaafb")
+    season = cache.check_cache(year) if use_cache else None
     if season:
         return season.with_season_start(SEASON_START)
 
@@ -108,9 +126,11 @@ async def get_season(year: int) -> Season:
     weeks = list(_remove_cross_division_duplicates(weeks))
     season = Season(weeks, year, trouble_weeks, SEASON_START)
 
-    # Cache if the season is over
+    # Cache if the season is over -- and only if we were allowed to read it,
+    # since `save_to_cache` refuses to overwrite and a bypassing caller has
+    # no business replacing what it deliberately ignored.
     season_end_date = datetime(year + 1, *SEASON_END, tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) > season_end_date:
+    if use_cache and datetime.now(timezone.utc) > season_end_date:
         cache.save_to_cache(season)
 
     return season
