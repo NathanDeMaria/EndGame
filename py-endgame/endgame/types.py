@@ -93,8 +93,13 @@ class SeasonType(Enum):
     """
     Regular, or bowls+playoffs.
     Post probably also includes conference championships?
+
+    `pre` is never asked for -- nothing here wants preseason games. It's
+    named because the leagues fetched by day get one back whether they
+    asked or not, and recognizing it is how they're dropped.
     """
 
+    pre = 1
     regular = 2
     post = 3
 

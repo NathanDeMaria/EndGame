@@ -8,7 +8,13 @@ from multidict import CIMultiDict, CIMultiDictProxy
 from yarl import URL
 
 from . import daily as daily_module
-from .daily import DailyLeague, get_daily_games, get_daily_odds, get_season
+from .daily import (
+    DailyLeague,
+    get_daily_games,
+    get_daily_odds,
+    get_season,
+    league_play_filter,
+)
 from .date import date_range
 from .nhl import NHL
 from .season_cache import SeasonCache
@@ -342,7 +348,7 @@ async def test_get_season__numbers_weeks_across_the_new_year() -> None:
 
 
 def _patch_espn_games(games: List[Game]):
-    async def fake_get_games(url, parameters, league_games_only=False):
+    async def fake_get_games(url, parameters, event_filter=None):
         return list(games)
 
     return patch.object(
@@ -435,3 +441,107 @@ def test_finished_seasons_are_finished() -> None:
     assert WNBA.is_finished(2015)
     assert not NHL.is_finished(datetime.now(timezone.utc).year + 5)
     assert not WNBA.is_finished(datetime.now(timezone.utc).year + 5)
+
+
+def _espn_event(
+    season_type: Optional[int],
+    competition_type: Optional[str],
+    name: str = "Away at Home",
+) -> dict:
+    """
+    An ESPN event carrying only the fields the filter reads.
+    """
+    season = {} if season_type is None else {"season": {"type": season_type}}
+    competition: dict = {}
+    if competition_type is not None:
+        competition["type"] = {"abbreviation": competition_type}
+    return dict(id="1", name=name, competitions=[competition], **season)
+
+
+# Every case is a real event, with the season and competition types ESPN
+# actually served for it.
+@pytest.mark.parametrize(
+    "league,season_type,competition_type,name",
+    [
+        # An ordinary game -- every regular-season game either league has
+        # played back to 2002, the outdoor ones included.
+        (NHL, 2, "STD", "New York Rangers at Carolina Hurricanes"),
+        (WNBA, 2, "STD", "Chicago Sky at Connecticut Sun"),
+        (NHL, 2, "STD", "Washington Capitals at Pittsburgh Penguins (Winter Classic)"),
+        # The postseason is kept whatever its rounds are called.
+        (NHL, 3, "RD16", "Washington Capitals at New York Rangers"),
+        (NHL, 3, "QTR", "Tampa Bay Lightning at Washington Capitals"),
+        (NHL, 3, "SEMI", "Dallas Stars at Edmonton Oilers"),
+        (NHL, 3, "FINAL", "Vancouver Canucks at Boston Bruins"),
+        (WNBA, 3, "FINAL", "Las Vegas Aces at New York Liberty"),
+        # The WNBA's Commissioner's Cup final, which only it declares.
+        (WNBA, 2, "CC", "Indiana Fever at Minnesota Lynx"),
+    ],
+)
+def test_league_play_is_kept(
+    league: DailyLeague, season_type: int, competition_type: str, name: str
+) -> None:
+    assert league_play_filter(league)(_espn_event(season_type, competition_type, name))
+
+
+@pytest.mark.parametrize(
+    "league,season_type,competition_type,name",
+    [
+        # Preseason, which is where the games against sides that aren't in
+        # the league live.
+        (NHL, 1, "STD", "Florida Panthers at Carolina Hurricanes"),
+        (NHL, 1, "STD", "Adler Mannheim at Chicago Blackhawks"),
+        (WNBA, 1, "STD", "NIGERIA at Indiana Fever"),
+        (WNBA, 1, "EXH", "China at Los Angeles Sparks"),
+        # The All-Star game is filed under the *regular* season, which is
+        # why the season type alone can't be the check.
+        (NHL, 2, "ALLSTAR", "Team Staal at Team Lidstrom"),
+        (WNBA, 2, "ALLSTAR", "TEAM COLLIER at TEAM CLARK"),
+        # The 2023 NHL All-Star replaced the single game with a bracket
+        # between the divisions. Its games are "SEMI" -- the same name a
+        # conference final has, so only the season type separates them.
+        (NHL, 2, "SEMI", "Pacific at Central"),
+        # The 4 Nations Face-Off, played in the All-Star's slot in 2025.
+        (NHL, 2, "QRR", "USA at Canada"),
+        # The Commissioner's Cup is the WNBA's, so it isn't NHL league play.
+        (NHL, 2, "CC", "Some Team at Some Other Team"),
+    ],
+)
+def test_exhibitions_are_dropped(
+    league: DailyLeague, season_type: int, competition_type: str, name: str
+) -> None:
+    assert not league_play_filter(league)(
+        _espn_event(season_type, competition_type, name)
+    )
+
+
+def test_semi_final_depends_on_the_season_type() -> None:
+    """
+    The case that makes this take both fields: one name, a conference final
+    and an All-Star bracket game.
+    """
+    is_league_play = league_play_filter(NHL)
+    assert is_league_play(_espn_event(3, "SEMI", "Dallas Stars at Edmonton Oilers"))
+    assert not is_league_play(_espn_event(2, "SEMI", "Pacific at Central"))
+
+
+def test_unknown_regular_season_competition_is_dropped() -> None:
+    """
+    An unrecognized competition costs real games rather than admitting a
+    team that doesn't exist -- see `league_play_filter`.
+    """
+    assert not league_play_filter(NHL)(_espn_event(2, "WHATEVER"))
+
+
+def test_missing_fields_do_not_admit_an_event() -> None:
+    """
+    A response missing the blocks this reads mustn't skip the check by
+    leaving them out.
+    """
+    is_league_play = league_play_filter(NHL)
+    assert not is_league_play(_espn_event(None, None))
+    assert not is_league_play(_espn_event(None, "ALLSTAR"))
+    assert not is_league_play({"id": "1", "competitions": [{}]})
+    # ... but a normal competition with no season block still reads as the
+    # regular season, which is the one league game shape that lacks one.
+    assert is_league_play(_espn_event(None, "STD"))

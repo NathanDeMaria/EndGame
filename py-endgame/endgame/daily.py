@@ -17,6 +17,8 @@ from logging import getLogger
 from typing import (
     AsyncIterator,
     Callable,
+    Dict,
+    FrozenSet,
     Iterable,
     List,
     Mapping,
@@ -28,10 +30,10 @@ import aiohttp
 
 from .async_tools import apply_in_parallel
 from .date import date_range, is_between_dates
-from .espn_games import get_games, save_seasons
+from .espn_games import EventFilter, get_games, save_seasons
 from .espn_odds import Odds, get_odds
 from .season_cache import SeasonCache
-from .types import Game, Season, SeasonStart, Week
+from .types import Game, Season, SeasonStart, SeasonType, Week
 from .web import RequestParameters
 
 logger = getLogger(__name__)
@@ -77,6 +79,13 @@ class DailyLeague:
     # one's start is what puts a game in two seasons' files at once. These
     # get the real dates instead.
     odd_seasons: Mapping[int, Tuple[date, date]] = field(default_factory=dict)
+    # The competitions that count as this league playing itself *within* a
+    # regular season -- see `league_play_filter`, which is the only reader.
+    # "STD" is an ordinary game, which is every regular-season game either
+    # league has played back to 2002, outdoor ones included. A league with
+    # a competition of its own alongside those (the WNBA's Commissioner's
+    # Cup) names it here.
+    regular_season_competitions: FrozenSet[str] = frozenset({"STD"})
 
     def start_date(self, year: int) -> date:
         """
@@ -251,19 +260,71 @@ def _day_parameters(day: date) -> RequestParameters:
     )
 
 
+def league_play_filter(league: DailyLeague) -> EventFilter:
+    """
+    An `EventFilter` keeping only the games where `league` plays itself.
+
+    Asking ESPN for a *day* is what makes this necessary. A league fetched
+    by week names a `seasontype` in the request and can't get back anything
+    else; a day is whatever ESPN ran that day -- preseason, the All-Star
+    game, a tournament of national sides -- and a rating fit on those has
+    teams in it that don't play in the league.
+
+    Telling one from the other takes both fields ESPN gives, because
+    neither is enough alone:
+
+      * Preseason is a season type, and it's where the games against
+        non-league sides live (Adler Mannheim, Jokerit, Nigeria, the
+        Toyota Antelopes).
+      * The All-Star game is filed under the *regular* season, so the
+        season type can't catch it.
+      * Nor can the competition type: the 2023 NHL All-Star ran a bracket
+        whose games come back as "SEMI", which is what a conference final
+        is called too.
+
+    So the postseason is kept whatever its rounds are named, and the
+    regular season keeps only `league.regular_season_competitions`. That's
+    an allowlist rather than a blocklist of the exhibitions because the two
+    failures aren't equal: an unrecognized competition costs real games,
+    which leaves a hole someone notices, while a missed exhibition puts a
+    team that doesn't exist into a published rating. The logging is so the
+    first one isn't silent either.
+    """
+
+    def _is_league_play(event: Dict) -> bool:
+        season_type = (event.get("season") or {}).get("type")
+        if season_type == SeasonType.post.value:
+            return True
+        if season_type == SeasonType.pre.value:
+            return False
+
+        # Anything else is read as the regular season, a response with no
+        # season block included: the competition check below is the one
+        # that matters, and defaulting the other way would let an event
+        # skip it by leaving a field out.
+        competition = (event.get("competitions") or [{}])[0]
+        competition_type = (competition.get("type") or {}).get("abbreviation")
+        if competition_type in league.regular_season_competitions:
+            return True
+        logger.info(
+            "Dropping %s from %s: not league play (season type %s, competition %s)",
+            event.get("name", event.get("id")),
+            league.name,
+            season_type,
+            competition_type,
+        )
+        return False
+
+    return _is_league_play
+
+
 async def get_daily_games(league: DailyLeague, day: date) -> List[Game]:
     """
-    Get a single day's completed games.
-
-    League play only. Asking for a *day* is what makes this necessary: a
-    week-based league names a `seasontype` in the request and never sees
-    anything else, but a day is whatever ESPN ran that day -- preseason,
-    the All-Star game, a tournament of national sides -- and a rating built
-    on those has teams in it that don't play in the league.
+    Get a single day's completed games, league play only.
     """
     logger.info("Getting %s games for %s", league.name, day)
     games = await get_games(
-        league.scoreboard_url, _day_parameters(day), league_games_only=True
+        league.scoreboard_url, _day_parameters(day), league_play_filter(league)
     )
     games = [_rename_teams(league, g) for g in games]
     if league.drop_scoreless:
