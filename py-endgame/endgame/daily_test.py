@@ -342,7 +342,7 @@ async def test_get_season__numbers_weeks_across_the_new_year() -> None:
 
 
 def _patch_espn_games(games: List[Game]):
-    async def fake_get_games(url, parameters):
+    async def fake_get_games(url, parameters, league_games_only=False):
         return list(games)
 
     return patch.object(

@@ -4,12 +4,44 @@ Parsing games from the ESPN API
 
 import json
 from csv import DictWriter
+from logging import getLogger
 from typing import Dict, List, NamedTuple, Optional
 
 from dateutil import parser
 
 from .types import Game, Season
 from .web import RequestParameters, get
+
+logger = getLogger(__name__)
+
+# ESPN files a game under a season type -- 1 preseason, 2 regular, 3
+# postseason -- and files its competition under a type of its own. Telling a
+# league game from an exhibition takes both, because neither is enough alone:
+#
+#   * Preseason is where the games against European clubs and national teams
+#     live (Adler Mannheim, Jokerit, Nigeria, the Toyota Antelopes), so the
+#     season type is what catches those.
+#   * The All-Star game is filed under the *regular* season, not its own, so
+#     the season type can't catch it.
+#   * Neither can the competition type on its own: the 2023 NHL All-Star ran
+#     a bracket whose games come back as "SEMI", which is exactly what a
+#     conference final is called too.
+#
+# So it takes the pair, and the postseason is trusted whatever its
+# competitions are called.
+_PRESEASON, _REGULAR_SEASON, _POSTSEASON = 1, 2, 3
+
+# The competitions that are league play *within* a regular season. "STD" is
+# an ordinary game, in both leagues and in every season back to 2002. "CC" is
+# the WNBA's Commissioner's Cup final -- one game a year, between two real
+# teams, so it stays.
+#
+# An allowlist rather than a blocklist of the exhibitions, because the way
+# this fails matters: an unrecognized competition costs a handful of real
+# games, which shows up as a hole. Missing an exhibition puts a team that
+# doesn't exist into the ratings, which shows up as Team Staal in a
+# published top ten. The logging below is so the first failure isn't silent.
+_REGULAR_SEASON_COMPETITIONS = frozenset({"STD", "CC"})
 
 
 def save_seasons(seasons: List[Season], location: str):
@@ -40,15 +72,60 @@ def _get_first_game(seasons: List[Season]) -> Game:
     raise ValueError("No games to save")
 
 
-async def get_games(url: str, parameters: RequestParameters) -> List[Game]:
+def is_league_game(event: Dict) -> bool:
+    """
+    Whether an event is the league actually playing itself.
+
+    False for preseason, for the All-Star game and whatever tournament has
+    replaced it in a given year, and so for the club and national sides that
+    only ever turn up in those -- none of which belong in a rating.
+
+    Only the leagues pulled a day at a time need this. The ones pulled by
+    week ask ESPN for a `seasontype` up front, so their requests can't
+    return a preseason game in the first place.
+    """
+    season_type = (event.get("season") or {}).get("type")
+    if season_type == _POSTSEASON:
+        return True
+    if season_type == _PRESEASON:
+        return False
+
+    # Anything else is treated as the regular season, including a response
+    # with no season block at all: the competition allowlist below is the
+    # check that matters, and defaulting the other way would let an event
+    # skip it by omitting a field.
+    competition = (event.get("competitions") or [{}])[0]
+    competition_type = (competition.get("type") or {}).get("abbreviation")
+    if competition_type in _REGULAR_SEASON_COMPETITIONS:
+        return True
+    logger.info(
+        "Dropping %s: not league play (season type %s, competition %s)",
+        event.get("name", event.get("id")),
+        season_type,
+        competition_type,
+    )
+    return False
+
+
+async def get_games(
+    url: str, parameters: RequestParameters, league_games_only: bool = False
+) -> List[Game]:
     """
     Get games for a set of parameters (probably a week or something)
     from the ESPN API
+
+    `league_games_only` drops the exhibitions -- see `is_league_game`. It's
+    off by default because the leagues pulled by week scope their requests
+    with a `seasontype` instead, and would only pay to re-check it.
     """
     content = await get(url, parameters)
     tree = json.loads(content.data)
 
-    attempted_games: List[Optional[Game]] = [parse_game(e) for e in tree["events"]]
+    events = tree["events"]
+    if league_games_only:
+        events = [e for e in events if is_league_game(e)]
+
+    attempted_games: List[Optional[Game]] = [parse_game(e) for e in events]
     games = [g for g in attempted_games if g is not None]
 
     # Don't cache games if there are none here.

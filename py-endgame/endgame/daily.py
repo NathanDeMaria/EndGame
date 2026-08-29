@@ -254,9 +254,17 @@ def _day_parameters(day: date) -> RequestParameters:
 async def get_daily_games(league: DailyLeague, day: date) -> List[Game]:
     """
     Get a single day's completed games.
+
+    League play only. Asking for a *day* is what makes this necessary: a
+    week-based league names a `seasontype` in the request and never sees
+    anything else, but a day is whatever ESPN ran that day -- preseason,
+    the All-Star game, a tournament of national sides -- and a rating built
+    on those has teams in it that don't play in the league.
     """
     logger.info("Getting %s games for %s", league.name, day)
-    games = await get_games(league.scoreboard_url, _day_parameters(day))
+    games = await get_games(
+        league.scoreboard_url, _day_parameters(day), league_games_only=True
+    )
     games = [_rename_teams(league, g) for g in games]
     if league.drop_scoreless:
         games = [g for g in games if g.home_score > 0 or g.away_score > 0]
