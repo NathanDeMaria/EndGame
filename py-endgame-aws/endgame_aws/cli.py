@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import AsyncIterator, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
+from endgame.date import get_end_year
 from endgame.espn_odds import Odds as EspnOdds
 from endgame.ncaabb import NcaabbGender, get_plays_for_day
 from endgame.ncaabb.box_score.all import get_season_box_scores
@@ -16,12 +17,14 @@ from endgame.ncaabb.ncaabb import (
     get_ncaabb_spreads,
 )
 from endgame.ncaabb.possession_side import PossessionSide
+from endgame.ncaafb import FIRST_WEEK_ZERO_SEASON
+from endgame.ncaafb import SEASON_END as NCAAFB_SEASON_END
 from endgame.ncaafb import get_current_odds as get_ncaafb_current_odds
 from endgame.ncaafb import get_season as get_ncaafb_season
 from endgame.nfl.games import get_current_odds as get_nfl_current_odds
 from endgame.nfl.games import get_season as get_nfl_season
 from endgame.nhl import get_nhl_odds, get_nhl_season
-from endgame.types import group_games_into_weeks, iter_weeks
+from endgame.types import group_games_into_weeks, iter_weeks, merge_weekly_seasons
 from endgame.wnba import get_wnba_odds, get_wnba_season
 from fire import Fire
 
@@ -162,20 +165,109 @@ _GAMES_LEAGUES: dict[str, _GamesLeague] = {
 }
 
 
+def _count_games(season: Season | None) -> int:
+    if season is None:
+        return 0
+    return sum(len(week.games) for week in season.weeks)
+
+
+async def _save_merged(key: str, existing: Season | None, season: Season) -> int:
+    """
+    Write `season` folded over what is already in the bucket, never under it.
+
+    A pull is a full re-fetch for the leagues fetched by week, so a bad one
+    -- an ESPN 5xx, a rate limit, a week that lands in `trouble_params` --
+    used to write a smaller season straight over a complete one and say
+    nothing about it. Merging means a run can add games and correct them,
+    and cannot drop them.
+
+    The leagues fetched by day have already folded in `season_so_far` by the
+    time they get here, so this is a no-op union for them. Uniform is easier
+    to reason about than conditional, and the cost is one dict pass.
+    """
+    if existing is not None:
+        season = merge_weekly_seasons([existing, season])
+
+    before, after = _count_games(existing), _count_games(season)
+    # Unreachable after the merge above, which is exactly why it raises
+    # rather than warns: fewer games than the bucket already had means the
+    # merge is broken, and the write on the next line would make that
+    # permanent.
+    if after < before:
+        raise RuntimeError(
+            f"refusing to shrink {key}: {before} games in the bucket, "
+            f"{after} after merging this pull"
+        )
+
+    await save_to_s3([season], _CONFIG.bucket, key)
+    return after
+
+
 async def games(league: str, year: int) -> None:
     games_league = _GAMES_LEAGUES[league]
     key = f"seasons/{year}/{league}.pkl"
-    season_so_far = (
-        await _load_season(_CONFIG.bucket, key) if games_league.incremental else None
+    existing = await _load_season(_CONFIG.bucket, key)
+    season = await games_league.get_season(
+        year, existing if games_league.incremental else None
     )
-    season = await games_league.get_season(year, season_so_far)
-    await save_to_s3([season], _CONFIG.bucket, key)
+    saved = await _save_merged(key, existing, season)
     logger.info(
-        "Saved %d games for %s %d",
-        sum(len(w.games) for w in season.weeks),
+        "Saved %d games for %s %d (%d before this run)",
+        saved,
         league,
         year,
+        _count_games(existing),
     )
+
+
+async def backfill_week_zero(
+    first_year: int = FIRST_WEEK_ZERO_SEASON,
+    last_year: int | None = None,
+    dry_run: bool = True,
+) -> None:
+    """
+    Re-pull ncaafb seasons so they pick up week 0.
+
+    The daily job fixes the current season on its own -- it re-fetches the
+    whole thing every run -- so this is for the seasons already sitting in
+    the bucket, written before week 0 was asked for.
+
+    Defaults to a dry run; pass --dry_run=False to write. Run one year
+    first and read the numbers before turning it loose on the range: every
+    line should show a season gaining games or standing still, and the
+    write refuses if one would shrink.
+
+    `first_year` defaults to the first season ESPN has a week 0 for. Lower
+    it to find out whether an earlier one does -- a dry run costs a
+    re-fetch and writes nothing, which is the cheap way to check that
+    constant rather than trusting it.
+    """
+    last = last_year if last_year is not None else get_end_year(NCAAFB_SEASON_END)
+    for year in range(first_year, last + 1):
+        key = f"seasons/{year}/ncaafb.pkl"
+        existing = await _load_season(_CONFIG.bucket, key)
+        if existing is None:
+            logger.warning("%s is not in the bucket; skipping", key)
+            continue
+
+        season = merge_weekly_seasons([existing, await get_ncaafb_season(year)])
+        before, after = _count_games(existing), _count_games(season)
+        logger.info(
+            "%s: %d -> %d games (+%d)%s",
+            key,
+            before,
+            after,
+            after - before,
+            " (dry run)" if dry_run else "",
+        )
+
+        if after == before:
+            # Nothing to add, so nothing is written -- an object rewritten
+            # to the same contents still costs a version and moves its
+            # last-modified, which is the signal the job dashboard reads.
+            continue
+        if not dry_run:
+            await _save_merged(key, existing, season)
 
 
 _NCAABB_SEASON_KEY_RE = re.compile(r"^seasons/(\d+)/(mens|womens)\.pkl$")
@@ -291,6 +383,7 @@ async def plays(league: str, day: str | None = None) -> None:
 def main():
     Fire(
         {
+            "backfill_week_zero": backfill_week_zero,
             "box_scores": box_scores,
             "games": games,
             "odds": odds,
