@@ -9,7 +9,6 @@ the day-pulled leagues pass in.
 import json
 import pickle
 from datetime import datetime, timezone
-from typing import Dict, List
 from unittest.mock import AsyncMock, patch
 
 from . import espn_games as espn_games_module
@@ -26,7 +25,7 @@ def _event(
     *,
     completed: bool = True,
     status: str | None = None,
-) -> Dict:
+) -> dict:
     if status is None:
         status = "STATUS_FINAL" if completed else "STATUS_SCHEDULED"
     return {
@@ -54,7 +53,7 @@ def _event(
     }
 
 
-def _patch_get(events: List[Dict]):
+def _patch_get(events: list[dict]):
     content = AsyncMock()
     content.data = json.dumps({"events": events})
     return patch.object(espn_games_module, "get", AsyncMock(return_value=content))
@@ -91,7 +90,7 @@ def test_keep_every_event_is_the_default() -> None:
 
 def _unscored_event(
     event_id: str, completed: bool = False, status: str = "STATUS_TBD"
-) -> Dict:
+) -> dict:
     """
     A fixture ESPN listed and never filled in: no `score` on either side.
 
@@ -223,7 +222,7 @@ class TestPickleCompatibility:
         """The mechanism the test below depends on, pinned."""
         game = Game("Home", 3, "Away", 2, False, True, _WHEN, "id", "STATUS_FINAL")
 
-        assert game.__getnewargs__() == tuple(game)
+        assert game.__getnewargs__() == tuple(game)  # ty: ignore[unresolved-attribute]
         assert pickle.loads(pickle.dumps(game)) == game
 
     def test_a_game_saved_without_a_status_still_loads(self) -> None:
