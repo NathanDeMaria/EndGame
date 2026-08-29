@@ -1,5 +1,5 @@
-# 3.13.4-bullseye on 2025-06-08
-FROM python@sha256:0cfd98c036493924a8f80c343aeb1d14a23e8ef4c8c18c7932c36c80fa2e72aa AS base
+# 3.14.7-trixie on 2026-08-29
+FROM python@sha256:48651f00145ad01e9f83d468c57cec40fac72081950f9730205b87abc6087552 AS base
 
 # Poetry gets its own venv so its dependencies can't collide with the app's:
 # poetry.toml sets virtualenvs.create = false, so app deps land in the system
@@ -7,7 +7,7 @@ FROM python@sha256:0cfd98c036493924a8f80c343aeb1d14a23e8ef4c8c18c7932c36c80fa2e7
 # Root-owned deliberately -- `dev` below only ever executes poetry, it never
 # installs into it.
 ENV POETRY_HOME="/opt/poetry" \
-    POETRY_VERSION=2.1.3
+    POETRY_VERSION=2.4.2
 RUN python3 -m venv "$POETRY_HOME" \
     && "$POETRY_HOME/bin/pip" install --no-cache-dir "poetry==$POETRY_VERSION" \
     && ln -s "$POETRY_HOME/bin/poetry" /usr/local/bin/poetry
@@ -125,10 +125,6 @@ RUN sudo apt-get update \
 # (~/.claude/downloads) is emptied before the layer closes, so nothing here
 # collides with the ~/.claude bind mount at runtime. Auto-updates still run
 # inside a live container; this only pins what a fresh build starts from.
-#
-# The native build is glibc-linked; bullseye's 2.31 is the oldest it supports.
-# If this ever starts failing with a `GLIBC_2.xx not found`, the fix is to move
-# the FROM above to a bookworm digest, not to drop back to the npm install.
 RUN curl -fsSL https://claude.ai/install.sh | bash -s 2.1.235
 
 # Claude's top-level config lives at $HOME/.claude.json, which is *outside* the
