@@ -12,51 +12,50 @@
         "editor.rulers": [
           88
         ],
-        "python.pythonPath": "/usr/local/bin/python",
-        "python.linting.enabled": true,
-        "python.linting.mypyEnabled": true,
-        "python.linting.mypyPath": "/usr/local/bin/mypy",
-        "python.linting.pylintEnabled": true,
-        "python.linting.pylintPath": "/usr/local/bin/pylint",
-        "python.linting.pylintArgs": [
-          "--enable=unused-import,unused-variable",
-          "--disable=missing-module-docstring",
-          "--max-line-length=88"
-        ],
-        "python.formatting.provider": "black",
-        "python.formatting.blackPath": "/usr/local/bin/black",
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
         "editor.formatOnSave": true,
         "python.testing.pytestArgs": [
           "."
         ],
         "python.testing.unittestEnabled": false,
-        "python.testing.nosetestsEnabled": false,
         "python.testing.pytestEnabled": true,
         "autoDocstring.docstringFormat": "numpy-notypes",
-        "jupyter.debugJustMyCode": false
+        "jupyter.debugJustMyCode": false,
+        "[python]": {
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit",
+            "source.fixAll": "explicit"
+          },
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        },
+        "search.useIgnoreFiles": true
       },
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "sourcery.sourcery",
         "njpwerner.autodocstring",
+        "charliermarsh.ruff",
         "github.vscode-github-actions",
         "ms-toolsai.jupyter",
         "anthropic.claude-code"
       ]
     }
   },
+  "remoteUser": "dev",
+  "shutdownAction": "none",
+  "remoteEnv": {
+    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+  },
+  "postCreateCommand": "sudo chown -R $(id -u):$(id -g) /commandhistory && poetry install",
+  "postStartCommand": "endgame-aws -- --completion bash > ~/.endgame-aws-completion.sh && nohup flock -n /home/dev/.claude-rc.lock claude rc --name endgame-aws >>/tmp/claude-rc.log 2>&1 &",
   "mounts": [
     "source=bashhistory-volume,target=/commandhistory,type=volume",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.endgame/cache,target=/root/.endgame/cache,type=bind,consistency=cached",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/cache,target=/root/.endgame/cache,type=bind,consistency=cached",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/login,target=/root/.aws/login,type=bind,consistency=cached",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/sso,target=/root/.aws/sso,type=bind,consistency=cached",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/credentials,target=/root/.aws/credentials,type=bind,consistency=cached,ro=1",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/config,target=/root/.aws/config,type=bind,consistency=cached,ro=1",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude,target=/root/.claude,type=bind,consistency=cached",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws-batch/config.json,target=/root/.aws-batch/config.json,type=bind,consistency=cached,ro=1"
-  ],
-  "postCreateCommand": "poetry install",
-  "postStartCommand": "endgame-aws -- --completion bash > ~/.endgame-aws-completion.sh"
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.endgame/cache,target=/home/dev/.endgame/cache,type=bind,consistency=cached",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/login,target=/home/dev/.aws/login,type=bind,consistency=cached",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/sso,target=/home/dev/.aws/sso,type=bind,consistency=cached",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/credentials,target=/home/dev/.aws/credentials,type=bind,consistency=cached,ro=1",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws/config,target=/home/dev/.aws/config,type=bind,consistency=cached,ro=1",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.claude,target=/home/dev/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.aws-batch/config.json,target=/home/dev/.aws-batch/config.json,type=bind,consistency=cached,ro=1"
+  ]
 }
