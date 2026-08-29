@@ -91,6 +91,7 @@ async def get_season(
     *,
     use_cache: bool = True,
     season_cache: SeasonCache | None = None,
+    include_unplayed: bool = False,
 ) -> Season:
     """
     Get the games from a season of NCAAFB
@@ -106,6 +107,16 @@ async def get_season(
     Note it leaves the cache alone rather than refreshing it, so a dry run
     stays a dry run. Delete `~/.endgame/cache/season/ncaafb/` (or
     `$ENDGAME_CACHE_DIR`) if you want local pulls corrected too.
+
+    `include_unplayed` keeps the games ESPN hasn't finished, so the season
+    carries the fixtures ahead of it as well as the results behind it. A
+    season fetched with it holds games with no result yet -- read
+    `game.completed` before reading a score.
+
+    It needs nothing from the season cache, which is only written once a
+    season is over and every game in it is complete: there's no unplayed
+    game for a cached season to be missing, so a hit is as good either way
+    and the cache doesn't have to know which way it was fetched.
     """
     logger.info("Getting NCAA season %s", year)
     cache = season_cache or SeasonCache("ncaafb")
@@ -119,7 +130,7 @@ async def get_season(
     trouble_weeks: List[WeekParams] = []
     for week_param in week_params:
         try:
-            week = await _get_week(*week_param)
+            week = await _get_week(*week_param, include_unplayed=include_unplayed)
             weeks.append(week)
         # Should I raise custom exception instead?
         except aiohttp.ClientResponseError:
@@ -187,7 +198,12 @@ def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:
 
 
 async def _get_week(
-    year: int, week: int, season_type: SeasonType, group: NcaaFbGroup
+    year: int,
+    week: int,
+    season_type: SeasonType,
+    group: NcaaFbGroup,
+    *,
+    include_unplayed: bool = False,
 ) -> Week:
     msg = f"Getting NCAAFB {year} {season_type.name} week {week} for {group.name}"
     logger.info(msg)
@@ -202,7 +218,7 @@ async def _get_week(
         groups=group.value,
     )
 
-    games = await get_games(BASE_URL, parameters)
+    games = await get_games(BASE_URL, parameters, include_unplayed=include_unplayed)
     games = list(map(_rename_teams, games))
     if season_type == SeasonType.post:
         week += N_REGULAR_WEEKS

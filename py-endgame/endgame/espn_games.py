@@ -66,6 +66,8 @@ async def get_games(
     url: str,
     parameters: RequestParameters,
     event_filter: EventFilter = keep_every_event,
+    *,
+    include_unplayed: bool = False,
 ) -> List[Game]:
     """
     Get games for a set of parameters (probably a week or something)
@@ -73,6 +75,16 @@ async def get_games(
 
     `event_filter` decides which of the returned events are games worth
     parsing; it defaults to all of them.
+
+    `include_unplayed` keeps the games ESPN hasn't finished -- scheduled,
+    in progress, postponed. Off by default, because most callers want
+    results and nothing else: a caller that turns it on is taking on games
+    with no score yet, and anything walking them per-game (NCAABB's
+    possessions and box scores) has to skip the unfinished ones itself.
+
+    Note what it deliberately does *not* change: whether the response is
+    cached. That's decided on everything parsed, unfinished games included,
+    so a week is still only frozen once every game in it has been played.
     """
     content = await get(url, parameters)
     tree = json.loads(content.data)
@@ -87,7 +99,7 @@ async def get_games(
     if all(g.completed for g in games) and games:
         await content.save_if_necessary()
 
-    return [g for g in games if g.completed]
+    return games if include_unplayed else [g for g in games if g.completed]
 
 
 def parse_game(event: Dict) -> Optional[Game]:
@@ -106,6 +118,7 @@ def parse_game(event: Dict) -> Optional[Game]:
     competitiors = [_parse_competitor(c) for c in competition["competitors"]]
     assert len(competitiors) == 2
     completed = event["status"]["type"]["completed"]
+    status = event["status"]["type"].get("name", "")
 
     neutral_site = competition["neutralSite"]
     if neutral_site:
@@ -151,6 +164,7 @@ def parse_game(event: Dict) -> Optional[Game]:
         completed=completed,
         date=parser.parse(event["date"]),
         game_id=event["id"],
+        status=status,
     )
 
 

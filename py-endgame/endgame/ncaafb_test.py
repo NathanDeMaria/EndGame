@@ -233,3 +233,53 @@ class TestIgnoringTheCache:
             await ncaafb.get_season(2016, use_cache=False, season_cache=cache)
 
         assert cache.saved == []
+
+
+class TestIncludeUnplayed:
+    """The flag has to reach every request a season is made of.
+
+    A season fetched with it half-applied is worse than one fetched
+    without: the weeks that got it carry fixtures and the weeks that
+    didn't look complete, and nothing downstream can tell which is which.
+    """
+
+    async def test_it_is_off_by_default(self) -> None:
+        with patch.object(
+            ncaafb, "_get_week", AsyncMock(return_value=Week([], 0))
+        ) as get_week:
+            await ncaafb.get_season(
+                2016, use_cache=False, season_cache=_FakeSeasonCache()
+            )
+
+        assert {
+            call.kwargs["include_unplayed"] for call in get_week.await_args_list
+        } == {False}
+
+    async def test_it_reaches_every_week_of_every_division(self) -> None:
+        with patch.object(
+            ncaafb, "_get_week", AsyncMock(return_value=Week([], 0))
+        ) as get_week:
+            await ncaafb.get_season(
+                2016,
+                use_cache=False,
+                season_cache=_FakeSeasonCache(),
+                include_unplayed=True,
+            )
+
+        assert get_week.await_count == len(_week_params(2016))
+        assert {
+            call.kwargs["include_unplayed"] for call in get_week.await_args_list
+        } == {True}
+
+    async def test_a_week_hands_it_to_the_fetch(self) -> None:
+        with patch.object(ncaafb, "get_games", AsyncMock(return_value=[])) as get_games:
+            await ncaafb._get_week(
+                2026,
+                1,
+                SeasonType.regular,
+                NcaaFbGroup.fbs,
+                include_unplayed=True,
+            )
+
+        assert get_games.await_args is not None
+        assert get_games.await_args.kwargs["include_unplayed"] is True

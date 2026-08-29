@@ -29,6 +29,31 @@ class Game(NamedTuple):
     completed: bool
     date: datetime
     game_id: str
+    # ESPN's `status.type.name`, verbatim: STATUS_FINAL, STATUS_SCHEDULED,
+    # STATUS_IN_PROGRESS, STATUS_CANCELED, STATUS_POSTPONED, ...
+    #
+    # `completed` only says result / not-a-result, and once unplayed games
+    # are kept that isn't enough: a 0-0 game is scheduled, cancelled,
+    # scoreless-so-far, or a real NHL tie, and ESPN sends a score for all
+    # of them. This is how a reader tells which.
+    #
+    # A str rather than an enum on purpose. `SeasonType` and `NcaaFbGroup`
+    # enumerate parameters we send; this is a value ESPN sends back, and a
+    # status nobody has seen before should land in the pickle as an odd
+    # string rather than take a season's fetch down.
+    #
+    # Defaulted because every Game in the bucket was pickled before this
+    # field existed: a NamedTuple unpickles by calling the current class
+    # with the old values, so a field without one raises TypeError on every
+    # season already saved. Empty rather than STATUS_FINAL -- those games
+    # really are all final, but writing a status nothing ever read is how a
+    # wrong invariant gets baked in.
+    #
+    # Note it can disagree with `completed`: `parse_game` concludes a game
+    # with no score at all is unplayed whatever ESPN's status claims, and
+    # doesn't rewrite the status to match. This is what ESPN said; that is
+    # what we concluded.
+    status: str = ""
 
     @property
     def column_names(self) -> List[str]:

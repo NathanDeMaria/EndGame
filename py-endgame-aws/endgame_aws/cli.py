@@ -1,7 +1,10 @@
+import asyncio
 import json
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import wraps
+from inspect import iscoroutinefunction
 from typing import AsyncIterator, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
@@ -403,15 +406,44 @@ async def plays(league: str, day: str | None = None) -> None:
     )
 
 
+def _run_with_asyncio(command):
+    """
+    Let Fire dispatch a coroutine command on Python 3.14.
+
+    Fire runs one by reaching for `asyncio.get_event_loop()`
+    (fire 0.7.1, core.py:681). That used to build a loop when there wasn't
+    one; on 3.14 it raises `RuntimeError: There is no current event loop`.
+    Every command here is async, so without this the CLI can't run any of
+    them -- `games` and `odds` included, which is the whole scheduled job.
+
+    `wraps` is what keeps `--help` working: Fire reads the docstring and
+    signature off the wrapper, and follows `__wrapped__` to the real
+    parameters.
+    """
+
+    @wraps(command)
+    def run(*args, **kwargs):
+        return asyncio.run(command(*args, **kwargs))
+
+    return run
+
+
 def main():
+    commands = {
+        "backfill_week_zero": backfill_week_zero,
+        "box_scores": box_scores,
+        "games": games,
+        "odds": odds,
+        "plays": plays,
+        "preview_unplayed": preview_unplayed,
+        "regroup_ncaabb_weeks": regroup_ncaabb_weeks,
+    }
     Fire(
         {
-            "backfill_week_zero": backfill_week_zero,
-            "box_scores": box_scores,
-            "games": games,
-            "odds": odds,
-            "plays": plays,
-            "regroup_ncaabb_weeks": regroup_ncaabb_weeks,
+            name: _run_with_asyncio(command)
+            if iscoroutinefunction(command)
+            else command
+            for name, command in commands.items()
         }
     )
 
