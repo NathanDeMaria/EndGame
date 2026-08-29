@@ -147,3 +147,27 @@ async def test_a_zero_zero_game_is_still_a_result() -> None:
     assert [(g.game_id, g.home_score, g.away_score, g.completed) for g in games] == [
         ("tie", 0, 0, True)
     ]
+
+
+async def test_padded_names_are_collapsed() -> None:
+    """
+    ESPN's pre-1999 hockey rows are column-padded.
+    """
+    event = _event(
+        "padded", home="Boston          Bruins", away="Quebec        Nordiques"
+    )
+    with _patch_get([event]):
+        games = await get_games("http://espn", {})
+
+    assert [(g.home, g.away) for g in games] == [("Boston Bruins", "Quebec Nordiques")]
+
+
+async def test_unpadded_names_are_untouched() -> None:
+    with _patch_get(
+        [_event("plain", home="Boston Bruins", away="Toronto Maple Leafs")]
+    ):
+        games = await get_games("http://espn", {})
+
+    assert [(g.home, g.away) for g in games] == [
+        ("Boston Bruins", "Toronto Maple Leafs")
+    ]

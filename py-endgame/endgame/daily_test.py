@@ -380,7 +380,10 @@ async def test_wnba_drops_scoreless_games() -> None:
 @pytest.mark.parametrize(
     "league, old_name, current_name",
     [
-        pytest.param(NHL, "Mighty Ducks of Anaheim", "Anaheim Ducks", id="nhl-rename"),
+        # ESPN's own spelling. The name this used to carry, "Mighty Ducks
+        # of Anaheim", is the one nothing ever sends -- so this passed while
+        # the rename it was checking never fired on a real game.
+        pytest.param(NHL, "Anaheim Mighty Ducks", "Anaheim Ducks", id="nhl-rename"),
         pytest.param(NHL, "Atlanta Thrashers", "Winnipeg Jets", id="nhl-move"),
         pytest.param(NHL, "Arizona Coyotes", "Utah Mammoth", id="nhl-move-again"),
         pytest.param(WNBA, "Tulsa Shock", "Dallas Wings", id="wnba-move"),
@@ -565,3 +568,45 @@ def test_an_ordinary_game_keeps_its_id() -> None:
     ordinary = _espn_event(2, "STD", "Chicago Sky at Connecticut Sun")
     ordinary["id"] = "401244567"
     assert league_play_filter(WNBA)(ordinary)
+
+
+@pytest.mark.parametrize(
+    "name,day,expected",
+    [
+        # The first Winnipeg franchise: Jets until 1996, then Phoenix, and
+        # Utah now.
+        ("Winnipeg Jets", date(1994, 11, 20), "Utah Mammoth"),
+        ("Winnipeg Jets", date(1996, 3, 1), "Utah Mammoth"),
+        ("Phoenix Coyotes", date(1997, 11, 20), "Utah Mammoth"),
+        ("Arizona Coyotes", date(2015, 11, 20), "Utah Mammoth"),
+        # The second one, which is the old Atlanta Thrashers and stays put.
+        ("Winnipeg Jets", date(2013, 11, 20), "Winnipeg Jets"),
+        ("Atlanta Thrashers", date(2005, 11, 20), "Winnipeg Jets"),
+        # Franchises that moved inside the range now reachable.
+        ("Quebec Nordiques", date(1994, 11, 20), "Colorado Avalanche"),
+        ("Hartford Whalers", date(1995, 11, 20), "Carolina Hurricanes"),
+        # ESPN's spelling of the Ducks before they dropped the "Mighty".
+        ("Anaheim Mighty Ducks", date(2003, 11, 20), "Anaheim Ducks"),
+        ("Anaheim Ducks", date(2011, 11, 20), "Anaheim Ducks"),
+        # Something that never moved.
+        ("Boston Bruins", date(1994, 11, 20), "Boston Bruins"),
+    ],
+)
+def test_nhl_renames(name: str, day: date, expected: str) -> None:
+    assert NHL.rename_team(name, day) == expected
+
+
+def test_the_two_winnipeg_franchises_stay_apart() -> None:
+    """
+    The reason renaming takes a date: one name, two franchises that never
+    overlapped, and merging them hands one's history to the other.
+    """
+    old = NHL.rename_team("Winnipeg Jets", date(1994, 11, 20))
+    new = NHL.rename_team("Winnipeg Jets", date(2013, 11, 20))
+    assert old != new
+
+
+def test_wnba_renames_ignore_the_day() -> None:
+    for day in (date(2003, 6, 1), date(2025, 6, 1)):
+        assert WNBA.rename_team("Detroit Shock", day) == "Dallas Wings"
+        assert WNBA.rename_team("Minnesota Lynx", day) == "Minnesota Lynx"

@@ -165,7 +165,20 @@ class _Competitior(NamedTuple):
 def _parse_competitor(competitor: Dict) -> _Competitior:
     score = competitor.get("score")
     return _Competitior(
-        name=competitor["team"]["displayName"],
+        name=_clean_name(competitor["team"]["displayName"]),
         score=None if score is None else int(score),
         is_home=competitor["homeAway"] == "home",
     )
+
+
+def _clean_name(name: str) -> str:
+    """
+    One space between words.
+
+    ESPN's older hockey rows are column-padded -- "Boston          Bruins"
+    through the 1998-99 season, "Boston Bruins" from 1999-2000 on. Left
+    alone, that's the same team under two names either side of a season
+    nothing happened in. Nothing else this fetches is padded, so on
+    everything else this is a no-op.
+    """
+    return " ".join(name.split())
