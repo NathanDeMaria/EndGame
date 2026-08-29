@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
 
+from . import ncaafb
 from .ncaafb import FIRST_WEEK_ZERO_SEASON, SEASON_START, _week_params
+from .season_cache import SeasonCache
 from .types import (
     Game,
     NcaaFbGroup,
@@ -98,3 +101,69 @@ def test_the_rest_of_the_season_is_unchanged_either_side_of_the_gate() -> None:
         (0, SeasonType.regular, group) for group in NcaaFbGroup
     }
     assert without_year(without) - without_year(with_zero) == set()
+
+
+class _FakeSeasonCache(SeasonCache):
+    """A SeasonCache held in memory, so tests never touch the real one."""
+
+    def __init__(self, cached: Season | None = None) -> None:
+        super().__init__("fake")
+        self._cached = cached
+        self.saved: list[Season] = []
+
+    def check_cache(self, season: int) -> Season | None:
+        return self._cached
+
+    def save_to_cache(self, season: Season) -> None:
+        self.saved.append(season)
+
+
+def _cached_season(year: int = 2016) -> Season:
+    """A season as it was written before week 0 was ever asked for."""
+    return Season([Week([_game(9, 10, "week-one", year)], 1)], year, [], SEASON_START)
+
+
+class TestIgnoringTheCache:
+    """`backfill_week_zero` re-pulls seasons *because* what's saved is stale.
+
+    The season cache is written for every season that has ended, so any
+    machine that has pulled these years has one -- and a cache hit returns
+    the pre-week-0 season without a single request. The backfill's first
+    real run reported that every season gained nothing, which is exactly
+    what that looks like from outside.
+    """
+
+    async def test_a_cache_hit_short_circuits_the_fetch(self) -> None:
+        """The behaviour being opted out of, pinned so it stays deliberate."""
+        cache = _FakeSeasonCache(_cached_season())
+
+        with patch.object(ncaafb, "_get_week", AsyncMock()) as get_week:
+            season = await ncaafb.get_season(2016, season_cache=cache)
+
+        get_week.assert_not_awaited()
+        assert [g.game_id for w in season.weeks for g in w.games] == ["week-one"]
+
+    async def test_use_cache_false_fetches_anyway(self) -> None:
+        cache = _FakeSeasonCache(_cached_season())
+
+        with patch.object(
+            ncaafb, "_get_week", AsyncMock(return_value=Week([], 0))
+        ) as get_week:
+            await ncaafb.get_season(2016, use_cache=False, season_cache=cache)
+
+        # And it asks for week 0, which is the whole point of re-pulling.
+        assert get_week.await_count == len(_week_params(2016))
+        assert 0 in {call.args[1] for call in get_week.await_args_list}
+
+    async def test_it_leaves_the_cache_alone(self) -> None:
+        """A dry run has to stay a dry run.
+
+        `save_to_cache` also refuses to overwrite, so writing here would
+        raise on every season that already has one.
+        """
+        cache = _FakeSeasonCache(_cached_season())
+
+        with patch.object(ncaafb, "_get_week", AsyncMock(return_value=Week([], 0))):
+            await ncaafb.get_season(2016, use_cache=False, season_cache=cache)
+
+        assert cache.saved == []
