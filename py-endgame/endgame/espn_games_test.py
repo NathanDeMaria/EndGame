@@ -43,9 +43,7 @@ def _event(event_id: str, home: str = "Home", away: str = "Away") -> Dict:
 def _patch_get(events: List[Dict]):
     content = AsyncMock()
     content.data = json.dumps({"events": events})
-    return patch.object(
-        espn_games_module, "get", AsyncMock(return_value=content)
-    )
+    return patch.object(espn_games_module, "get", AsyncMock(return_value=content))
 
 
 async def test_every_event_is_parsed_by_default() -> None:
