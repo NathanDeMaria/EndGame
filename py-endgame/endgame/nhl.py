@@ -39,20 +39,42 @@ ODD_SEASONS = {
 }
 
 
-def _rename_team(name: str) -> str:
+# The day the original Winnipeg franchise stopped being Winnipeg's: it
+# played its last season as the Jets in 1995-96 and opened 1996-97 in
+# Phoenix. See `_rename_team` for why this needs a date at all.
+_JETS_LEFT_WINNIPEG = date(1996, 7, 1)
+
+
+def _rename_team(name: str, day: date) -> str:
     """
     Collapse a franchise's old names onto its current one, so a team is one
     team across seasons.
+
+    "Winnipeg Jets" is two different franchises and can't go in the table
+    below, because the table is keyed on the name alone. The first Jets
+    moved to Phoenix in 1996 and are now Utah; the team playing as the Jets
+    since 2011 is the old Atlanta Thrashers, which never went near Phoenix.
+    Mapping the name without asking when would hand one franchise's whole
+    history to the other.
     """
+    if name == "Winnipeg Jets" and day < _JETS_LEFT_WINNIPEG:
+        return "Utah Mammoth"
     return _RENAMES.get(name, name)
 
 
 _RENAMES = {
-    # Dropped the "Mighty" in 2006
-    "Mighty Ducks of Anaheim": "Anaheim Ducks",
+    # Dropped the "Mighty" in 2006. ESPN writes this "Anaheim Mighty Ducks",
+    # not "Mighty Ducks of Anaheim" -- the old key here never matched a
+    # single game, so 2002-2005 has been rating them as a separate team.
+    "Anaheim Mighty Ducks": "Anaheim Ducks",
     # Atlanta's franchise moved to Winnipeg in 2011
     "Atlanta Thrashers": "Winnipeg Jets",
-    # Phoenix -> Arizona in 2014, then Utah in 2024, renamed again in 2025
+    # Quebec's moved to Denver in 1995
+    "Quebec Nordiques": "Colorado Avalanche",
+    # Hartford's moved to Carolina in 1997
+    "Hartford Whalers": "Carolina Hurricanes",
+    # Winnipeg -> Phoenix in 1996 (see `_rename_team`), Phoenix -> Arizona
+    # in 2014, then Utah in 2024, renamed again in 2025
     "Phoenix Coyotes": "Utah Mammoth",
     "Arizona Coyotes": "Utah Mammoth",
     "Utah Hockey Club": "Utah Mammoth",
@@ -66,7 +88,9 @@ NHL = DailyLeague(
     season_end=SEASON_END,
     # October to June, so a season runs into the next calendar year
     end_year_offset=1,
-    first_year=2002,
+    # ESPN's hockey coverage starts here: 1993-94 comes back complete and
+    # scored, 1992-93 comes back empty.
+    first_year=1993,
     # The NHL played to ties until 2005-06, so a 0-0 final is a real result
     # and scoreless games can't be thrown away as bad data.
     drop_scoreless=False,

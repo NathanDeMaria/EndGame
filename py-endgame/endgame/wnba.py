@@ -20,10 +20,13 @@ SEASON_START = (5, 1)
 SEASON_END = (10, 31)
 
 
-def _rename_team(name: str) -> str:
+def _rename_team(name: str, day: date) -> str:
     """
     Collapse a franchise's old names onto its current one, so a team is one
     team across seasons.
+
+    `day` goes unused here -- no WNBA name has ever meant two franchises --
+    but the signature is shared, and the NHL's Jets need it.
     """
     return _RENAMES.get(name, name)
 

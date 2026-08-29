@@ -39,7 +39,7 @@ from .web import RequestParameters
 logger = getLogger(__name__)
 
 
-def _keep_name(name: str) -> str:
+def _keep_name(name: str, day: date) -> str:
     return name
 
 
@@ -70,8 +70,12 @@ class DailyLeague:
     # there is a real result.
     drop_scoreless: bool
     # Franchises that ESPN lists under more than one name over the years,
-    # collapsed onto the current one so a team is one team across seasons
-    rename_team: Callable[[str], str] = field(default=_keep_name)
+    # collapsed onto the current one so a team is one team across seasons.
+    #
+    # Takes the day the game was played as well as the name, because a name
+    # on its own isn't always enough to say which franchise it is: "Winnipeg
+    # Jets" is one franchise before 1996 and a different one after 2011.
+    rename_team: Callable[[str, date], str] = field(default=_keep_name)
     # Seasons that didn't run when they normally do, as season year ->
     # (first day, the day it's over by). The shared window is deliberately
     # loose, but a season that moves by months rather than days can't be
@@ -356,6 +360,7 @@ async def get_daily_odds(league: DailyLeague, day: date) -> AsyncIterator[Odds]:
 
 def _rename_teams(league: DailyLeague, game: Game) -> Game:
     game_dict = game.to_dict()
-    game_dict["away"] = league.rename_team(game_dict["away"])
-    game_dict["home"] = league.rename_team(game_dict["home"])
+    day = game.date.date()
+    game_dict["away"] = league.rename_team(game_dict["away"], day)
+    game_dict["home"] = league.rename_team(game_dict["home"], day)
     return Game(**game_dict)
