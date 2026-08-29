@@ -241,6 +241,11 @@ async def backfill_week_zero(
     it to find out whether an earlier one does -- a dry run costs a
     re-fetch and writes nothing, which is the cheap way to check that
     constant rather than trusting it.
+
+    Every season is fetched from ESPN rather than from the local season
+    cache, so a run is slow on purpose: it is dozens of requests per
+    season. A run that finishes instantly, with no "Getting NCAAFB ..."
+    lines per week, is not doing what it says.
     """
     last = last_year if last_year is not None else get_end_year(NCAAFB_SEASON_END)
     for year in range(first_year, last + 1):
@@ -250,7 +255,15 @@ async def backfill_week_zero(
             logger.warning("%s is not in the bucket; skipping", key)
             continue
 
-        season = merge_weekly_seasons([existing, await get_ncaafb_season(year)])
+        # `use_cache=False` is load-bearing, not tidiness. The season cache
+        # is written for every season that has ended, so any machine that
+        # has pulled these years already has one -- and a cache hit hands
+        # back the very pre-week-0 season this command exists to replace,
+        # without a single request. The first real run of this reported
+        # that every season gained exactly nothing.
+        season = merge_weekly_seasons(
+            [existing, await get_ncaafb_season(year, use_cache=False)]
+        )
         before, after = _count_games(existing), _count_games(season)
         logger.info(
             "%s: %d -> %d games (+%d)%s",
