@@ -4,12 +4,15 @@ Parsing games from the ESPN API
 
 import json
 from csv import DictWriter
+from logging import getLogger
 from typing import Callable, Dict, List, NamedTuple, Optional
 
 from dateutil import parser
 
 from .types import Game, Season
 from .web import RequestParameters, get
+
+logger = getLogger(__name__)
 
 # Whether one of ESPN's events is a game the caller wants at all.
 #
@@ -119,11 +122,31 @@ def parse_game(event: Dict) -> Optional[Game]:
         else:
             home_index, away_index = 1, 0
 
+    home_score = competitiors[home_index].score
+    away_score = competitiors[away_index].score
+    if home_score is None or away_score is None:
+        # ESPN lists the occasional fixture it never fills in -- a scheduled
+        # game that got superseded, left on "TBD" with no score on either
+        # side. The 2002 WNBA has a couple in its postseason, and used to
+        # take the whole season's fetch down on the int() below.
+        #
+        # A game with no score hasn't been played, whatever `completed` says,
+        # so it's recorded as unfinished with a nil score rather than
+        # dropped. Both matter: `get_games` discards unfinished games from
+        # what it returns, *and* refuses to cache a response containing one,
+        # which is what keeps a week whose games haven't happened yet out of
+        # the cache. Returning None here would lose the second one.
+        logger.info(
+            "No score for %s, treating it as unplayed",
+            event.get("name", event["id"]),
+        )
+        home_score, away_score, completed = 0, 0, False
+
     return Game(
         home=competitiors[home_index].name,
-        home_score=competitiors[home_index].score,
+        home_score=home_score,
         away=competitiors[away_index].name,
-        away_score=competitiors[away_index].score,
+        away_score=away_score,
         neutral_site=neutral_site,
         completed=completed,
         date=parser.parse(event["date"]),
@@ -133,13 +156,16 @@ def parse_game(event: Dict) -> Optional[Game]:
 
 class _Competitior(NamedTuple):
     name: str
-    score: int
+    # None when ESPN listed the fixture but never filled in a result. Not the
+    # same as 0, which the NHL's pre-2005 ties really did finish on.
+    score: Optional[int]
     is_home: bool
 
 
 def _parse_competitor(competitor: Dict) -> _Competitior:
+    score = competitor.get("score")
     return _Competitior(
         name=competitor["team"]["displayName"],
-        score=int(competitor["score"]),
+        score=None if score is None else int(score),
         is_home=competitor["homeAway"] == "home",
     )

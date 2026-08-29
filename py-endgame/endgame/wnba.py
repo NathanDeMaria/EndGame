@@ -58,6 +58,12 @@ WNBA = DailyLeague(
     # sits outside the standings. The All-Star game, which shares its
     # week, does not -- that one is "ALLSTAR" and gets dropped.
     regular_season_competitions=frozenset({"STD", "CC"}),
+    # The 2002 All-Star game, EAST v WEST on July 15th. ESPN tagged every
+    # All-Star game from 2003 on, and both leagues', but filed this one as
+    # an ordinary regular-season game -- so it's the single game in either
+    # league's history that no rule can tell from league play, and without
+    # it "EAST" and "WEST" end up rated off one game apiece.
+    untagged_exhibitions=frozenset({"220715098"}),
 )
 
 
