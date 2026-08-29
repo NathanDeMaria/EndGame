@@ -53,6 +53,11 @@ WNBA = DailyLeague(
     # handing back something bogus -- same as NCAABB.
     drop_scoreless=True,
     rename_team=_rename_team,
+    # "CC" is the Commissioner's Cup final: one game a year, played by two
+    # real teams for something, so it counts as league play even though it
+    # sits outside the standings. The All-Star game, which shares its
+    # week, does not -- that one is "ALLSTAR" and gets dropped.
+    regular_season_competitions=frozenset({"STD", "CC"}),
 )
 
 
