@@ -86,6 +86,12 @@ class DailyLeague:
     # a competition of its own alongside those (the WNBA's Commissioner's
     # Cup) names it here.
     regular_season_competitions: FrozenSet[str] = frozenset({"STD"})
+    # Event ids for exhibitions ESPN filed as ordinary games, so nothing in
+    # the response marks them. Named one at a time because that's the only
+    # thing that separates them -- and kept rare on purpose: every id in
+    # here is a game no rule could catch, so a growing list means the rule
+    # itself has stopped working.
+    untagged_exhibitions: FrozenSet[str] = frozenset()
 
     def start_date(self, year: int) -> date:
         """
@@ -292,6 +298,9 @@ def league_play_filter(league: DailyLeague) -> EventFilter:
     """
 
     def _is_league_play(event: Dict) -> bool:
+        if event.get("id") in league.untagged_exhibitions:
+            return False
+
         season_type = (event.get("season") or {}).get("type")
         if season_type == SeasonType.post.value:
             return True

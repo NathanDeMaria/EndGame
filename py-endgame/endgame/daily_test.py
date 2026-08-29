@@ -545,3 +545,23 @@ def test_missing_fields_do_not_admit_an_event() -> None:
     # ... but a normal competition with no season block still reads as the
     # regular season, which is the one league game shape that lacks one.
     assert is_league_play(_espn_event(None, "STD"))
+
+
+def test_untagged_exhibitions_are_dropped_by_id() -> None:
+    """
+    The 2002 WNBA All-Star game, which ESPN filed as an ordinary game --
+    nothing in the response tells it from league play, so it's named.
+    """
+    all_star = _espn_event(2, "STD", "Western Conf West at Eastern Conf East")
+    all_star["id"] = "220715098"
+    assert not league_play_filter(WNBA)(all_star)
+
+    # The same event for a league that hasn't named it is left alone, so
+    # one league's exception can't reach another's games.
+    assert league_play_filter(NHL)(all_star)
+
+
+def test_an_ordinary_game_keeps_its_id() -> None:
+    ordinary = _espn_event(2, "STD", "Chicago Sky at Connecticut Sun")
+    ordinary["id"] = "401244567"
+    assert league_play_filter(WNBA)(ordinary)
