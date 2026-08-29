@@ -44,7 +44,8 @@
   "remoteUser": "dev",
   "shutdownAction": "none",
   "remoteEnv": {
-    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+    "GH_TOKEN": "${localEnv:GH_TOKEN}",
+    "DEVCONTAINER_ENV_FILE": "${containerWorkspaceFolder}/.devcontainer/local.env"
   },
   "postCreateCommand": "sudo chown -R $(id -u):$(id -g) /commandhistory && poetry install",
   "postStartCommand": "endgame-aws -- --completion bash > ~/.endgame-aws-completion.sh && nohup flock -n /home/dev/.claude-rc.lock claude rc --name endgame-aws >>/tmp/claude-rc.log 2>&1 &",

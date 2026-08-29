@@ -92,11 +92,16 @@ RUN poetry install --no-root
 #
 # Only needed for interactive use (`aws sso login`, `make push`) -- nothing in
 # endgame_aws shells out to the CLI, it goes through aiobotocore.
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" &&\
-    unzip awscliv2.zip &&\
-    sudo ./aws/install &&\
-    rm awscliv2.zip &&\
-    rm -r ./aws
+#
+# `uname -m` because that is how the AWS CLI spells the arch in its download
+# urls (x86_64 / aarch64) -- `awscli-exe-linux-amd64.zip` is a 404. Not the
+# `dpkg --print-architecture` used for gh below, which spells the same two
+# machines amd64 / arm64 because that is what Debian package names use.
+RUN arch="$(uname -m)" \
+    && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${arch}.zip" -o awscliv2.zip \
+    && unzip -q awscliv2.zip \
+    && sudo ./aws/install \
+    && rm -rf awscliv2.zip ./aws
 
 # GitHub CLI, for PR and issue work from a Claude session. Debian ships no
 # usable gh package and the upstream apt repo would be an unpinned external
@@ -136,6 +141,26 @@ RUN printf '%s' '{"hasCompletedOnboarding":true,"theme":"dark"}' \
 
 # For persisting bash history
 RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" && echo $SNIPPET >> "/home/dev/.bashrc"
+
+# Machine-local environment -- the AWS_PROFILE to log into, mainly. It has to
+# be settable without committing it, so it lives in .devcontainer/local.env,
+# which .gitignore and .dockerignore both drop; devcontainer.json passes its
+# path down as DEVCONTAINER_ENV_FILE (from ${containerWorkspaceFolder}, since
+# where the workspace lands depends on which folder you opened).
+#
+# Sourced from two places on purpose, because bash reads different files
+# depending on how it was started and both cases matter here:
+#   .bashrc    interactive shells -- a VS Code terminal
+#   BASH_ENV   non-interactive ones -- `bash -c`, which is how Claude Code and
+#              anything scripted runs commands
+# Between them every bash in the container ends up with the profile set,
+# rather than just the ones a human typed into.
+#
+# Keep this script silent: BASH_ENV is read before *every* non-interactive
+# bash, so anything it prints lands in the output of every `$(...)` capture.
+COPY --chown=dev:dev .devcontainer/local-env.sh /home/dev/.local-env.sh
+ENV BASH_ENV=/home/dev/.local-env.sh
+RUN echo '. /home/dev/.local-env.sh' >> "/home/dev/.bashrc"
 
 # Is this a good way to add stuff on load?
 # Not sure, but it's working

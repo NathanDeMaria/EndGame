@@ -1,2 +1,7 @@
 config.json
 scratch/*
+
+# Machine-local devcontainer settings -- the AWS_PROFILE to use, mainly. The
+# point of the file is to keep that out of here; local.env.example is the
+# tracked copy that documents it.
+.devcontainer/local.env
