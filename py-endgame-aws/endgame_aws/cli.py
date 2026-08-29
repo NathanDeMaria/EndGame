@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
 from functools import wraps
@@ -27,7 +28,12 @@ from endgame.ncaafb import get_season as get_ncaafb_season
 from endgame.nfl.games import get_current_odds as get_nfl_current_odds
 from endgame.nfl.games import get_season as get_nfl_season
 from endgame.nhl import get_nhl_odds, get_nhl_season
-from endgame.types import group_games_into_weeks, iter_weeks, merge_weekly_seasons
+from endgame.types import (
+    Game,
+    group_games_into_weeks,
+    iter_weeks,
+    merge_weekly_seasons,
+)
 from endgame.wnba import get_wnba_odds, get_wnba_season
 from fire import Fire
 
@@ -404,6 +410,114 @@ async def plays(league: str, day: str | None = None) -> None:
     logger.info(
         "Saved pbp for %d games for %s on %s.", len(all_plays), league, parsed_date
     )
+
+
+async def preview_unplayed(year: int | None = None) -> None:
+    """
+    Report what turning on `include_unplayed` would do to ncaafb's key.
+
+    Writes nothing -- this is the look before the one-line flip in
+    `_GAMES_LEAGUES`, which is the first change that puts games with no
+    result into the bucket the rest of the pipeline reads.
+
+    The numbers to read before flipping:
+
+    - "completed lost/downgraded" and "duplicate ids" must all be zero.
+      Those are the properties a merge is supposed to guarantee, and the
+      only ones whose failure is silent.
+    - the two shrink-guard lines. `_count_games` counts every game, so the
+      guard stops meaning "never lose a result" the moment a schedule is
+      in the key -- the completed-only line is what it has to become.
+    - the status breakdown, which is what invisible-string gets.
+
+    Only ncaafb: it's the one league `get_season` takes the flag for. A
+    run is a full re-fetch, so it's slow on purpose -- dozens of requests,
+    the same as a real pull.
+    """
+    season_year = year if year is not None else get_end_year(NCAAFB_SEASON_END)
+    key = f"seasons/{season_year}/ncaafb.pkl"
+
+    existing = await _load_season(_CONFIG.bucket, key)
+    pulled = await get_ncaafb_season(season_year, include_unplayed=True)
+
+    def by_id(season: Season | None) -> dict[str, Game]:
+        if season is None:
+            return {}
+        return {g.game_id: g for w in season.weeks for g in w.games}
+
+    def raw_games(season: Season | None) -> list[Game]:
+        if season is None:
+            return []
+        return [g for w in season.weeks for g in w.games]
+
+    old_games = by_id(existing)
+    # What the same pull would have returned with the flag off. Deriving it
+    # rather than fetching twice: the flag only ever adds, so the completed
+    # half of one pull is the whole of the other.
+    off = {gid: g for gid, g in by_id(pulled).items() if g.completed}
+    merged_season = merge_weekly_seasons([s for s in (existing, pulled) if s])
+    merged = by_id(merged_season)
+
+    logger.info("%s", key)
+    logger.info(
+        "  in the bucket now: %d games, %d completed",
+        len(old_games),
+        sum(g.completed for g in old_games.values()),
+    )
+    logger.info("  this pull, flag off: %d games", len(off))
+    logger.info("  this pull, flag on:  %d games", len(by_id(pulled)))
+
+    logger.info("  after merging, by status:")
+    counts: dict[str, int] = {}
+    for game in merged.values():
+        counts[game.status or "(saved before status existed)"] = (
+            counts.get(game.status or "(saved before status existed)", 0) + 1
+        )
+    for status, count in sorted(counts.items(), key=lambda kv: -kv[1]):
+        logger.info("    %-34s %5d", status, count)
+
+    completed_before = sum(g.completed for g in old_games.values())
+    completed_after = sum(g.completed for g in merged.values())
+    logger.info(
+        "  shrink guard, counting every game: %d -> %d",
+        len(old_games),
+        len(merged),
+    )
+    logger.info(
+        "  shrink guard, completed only:      %d -> %d",
+        completed_before,
+        completed_after,
+    )
+
+    lost = [gid for gid in old_games if gid not in merged]
+    downgraded = [
+        gid
+        for gid, game in old_games.items()
+        if game.completed and not merged[gid].completed
+    ]
+    logger.info("  completed lost:       %s", lost or "none")
+    logger.info("  completed downgraded: %s", downgraded or "none")
+
+    # A game fetched under two divisions used to survive as two rows the
+    # moment its copies disagreed, which they only do while it's being
+    # played -- so this is checked here rather than trusted.
+    seen = Counter(g.game_id for g in raw_games(merged_season))
+    duplicated = sorted(gid for gid, n in seen.items() if n > 1)
+    logger.info("  duplicate ids:        %s", duplicated or "none")
+
+    added = sorted(
+        (g for gid, g in merged.items() if gid not in old_games and not g.completed),
+        key=lambda g: g.date,
+    )
+    logger.info("  %d games with no result yet would be added, earliest:", len(added))
+    for game in added[:5]:
+        logger.info(
+            "    %s  %-34s %s at %s",
+            game.date.strftime("%Y-%m-%d %H:%MZ"),
+            game.status,
+            game.away,
+            game.home,
+        )
 
 
 def _run_with_asyncio(command):
