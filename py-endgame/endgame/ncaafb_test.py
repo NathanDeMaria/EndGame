@@ -1,7 +1,15 @@
 from datetime import datetime, timezone
 
-from .ncaafb import SEASON_START
-from .types import Game, Season, Week, group_games_into_weeks, iter_weeks
+from .ncaafb import FIRST_WEEK_ZERO_SEASON, SEASON_START, _week_params
+from .types import (
+    Game,
+    NcaaFbGroup,
+    Season,
+    SeasonType,
+    Week,
+    group_games_into_weeks,
+    iter_weeks,
+)
 
 
 def _game(month: int, day: int, game_id: str, year: int = 2021) -> Game:
@@ -48,3 +56,45 @@ def test_season_walks_chronologically() -> None:
         ["fcs_semifinal"],
         ["title"],
     ]
+
+
+def test_week_zero_is_asked_for_from_the_season_espn_has_one() -> None:
+    """The games that open the season sit in week 0, and were never fetched.
+
+    UNC and TCU kicking off on the Saturday before Labour Day weekend is
+    the case: the season file had weeks 1-16 and none of the games anyone
+    actually wanted to look at that day.
+    """
+    params = _week_params(FIRST_WEEK_ZERO_SEASON)
+
+    regular = [p for p in params if p.season_type is SeasonType.regular]
+    assert min(p.week for p in regular) == 0
+    # Every division, not just FBS -- week 0 has FCS games in it too.
+    assert {p.group for p in regular if p.week == 0} == set(NcaaFbGroup)
+
+
+def test_week_zero_is_not_asked_for_before_that() -> None:
+    """A year with no week 0 must not spend three requests finding that out.
+
+    They'd come back empty or 404, and a 404 lands in `trouble_params` --
+    which is the signal for "this season is missing something", so filling
+    it with a permanent, expected absence is how that signal stops meaning
+    anything.
+    """
+    params = _week_params(FIRST_WEEK_ZERO_SEASON - 1)
+
+    assert min(p.week for p in params if p.season_type is SeasonType.regular) == 1
+
+
+def test_the_rest_of_the_season_is_unchanged_either_side_of_the_gate() -> None:
+    with_zero = _week_params(FIRST_WEEK_ZERO_SEASON)
+    without = _week_params(FIRST_WEEK_ZERO_SEASON - 1)
+
+    def without_year(params):
+        return {(p.week, p.season_type, p.group) for p in params}
+
+    # The gate adds week 0 and touches nothing else.
+    assert without_year(with_zero) - without_year(without) == {
+        (0, SeasonType.regular, group) for group in NcaaFbGroup
+    }
+    assert without_year(without) - without_year(with_zero) == set()

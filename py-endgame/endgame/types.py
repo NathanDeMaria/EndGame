@@ -235,6 +235,63 @@ def group_games_into_weeks(
     ]
 
 
+def merge_weekly_seasons(seasons: List[Season]) -> Season:
+    """
+    Fold seasons of the same year together, keeping the latest copy of a
+    game that shows up in more than one of them.
+
+    The later season wins per game, so a re-pull corrects a score. What it
+    cannot do is *drop* a game: anything only an earlier season knows about
+    survives. That is the property that makes a partial fetch safe to write
+    over a complete one -- before this, a pull that lost a week to an ESPN
+    5xx replaced the season with a smaller one and said nothing.
+
+    Unlike the merge in `daily.py`, this keeps the week each game was
+    fetched under. Leagues pulled a week at a time carry the source's week
+    numbers on their Week objects -- they're how you trace a game back to
+    the request that brought it -- and rebuilding the weeks from game dates
+    would quietly throw that away. Leagues pulled a day at a time put
+    everything in one week, so folding them through here is a no-op on
+    their grouping and works the same.
+    """
+    assert all(s.year == seasons[0].year for s in seasons)
+
+    latest: Dict[str, Tuple[int, Game]] = {}
+    for season in seasons:
+        for week in season.weeks:
+            for game in week.games:
+                latest[game.game_id] = (week.number, game)
+
+    by_number: Dict[int, List[Game]] = {}
+    for number, game in latest.values():
+        by_number.setdefault(number, []).append(game)
+
+    # dict.fromkeys rather than a sorted set: trouble params hold enums
+    # (SeasonType, NcaaFbGroup), and enums don't order, so sorting them
+    # raises. This dedupes and keeps a stable order without asking them to
+    # compare.
+    trouble: Dict[Any, None] = {}
+    for season in seasons:
+        for param in season.trouble_params or []:
+            trouble[param] = None
+
+    return Season(
+        [
+            Week(sorted(games, key=lambda g: g.date), number)
+            for number, games in sorted(by_number.items())
+        ],
+        seasons[0].year,
+        list(trouble),
+        # The freshest tag wins. A season pickled before `season_start`
+        # existed comes back untagged, and merging one of those in must not
+        # untag the season it's being folded into.
+        next(
+            (s.season_start for s in reversed(seasons) if s.season_start is not None),
+            None,
+        ),
+    )
+
+
 class OverlappingWeeksError(ValueError):
     """
     Raised when a season's weeks cover overlapping stretches of time.

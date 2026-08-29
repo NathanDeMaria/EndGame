@@ -33,6 +33,21 @@ SEASON_END = (2, 1)
 # playoffs sitting in regular season weeks 14-16. So the season is tagged
 # with a start and walked as calendar weeks instead.
 SEASON_START = (8, 20)
+# ESPN files the handful of games that open the season -- the Saturday
+# before Labour Day weekend -- under week 0, and only from this season on.
+# Before it the regular season starts at week 1, and asking for 0 comes back
+# empty or 404s for every division: three trouble weeks added to every
+# historical season, which would blunt the signal `trouble_params` is there
+# to carry.
+#
+# Gated by year rather than by "an empty week 0 is fine" so that a week 0
+# that *should* have games and doesn't still shows up as trouble.
+#
+# This year is a starting point, not a fact to trust: `backfill_week_zero
+# --dry_run` reports what week 0 adds per season, so lower it and re-run the
+# dry run if an earlier year turns out to have any. A dry run costs a
+# re-fetch and writes nothing.
+FIRST_WEEK_ZERO_SEASON = 2016
 
 
 async def update(location="ncaaf.csv"):
@@ -43,6 +58,22 @@ async def update(location="ncaaf.csv"):
     args = [(y,) for y in range(1999, end_year + 1)]
     seasons = [s async for s in apply_in_parallel(get_season, args)]
     save_seasons(seasons, location)
+
+
+def _week_params(year: int) -> List[WeekParams]:
+    """
+    Every request a season is made of: each division, each week, plus the
+    postseason.
+
+    Week 0 only from `FIRST_WEEK_ZERO_SEASON` on -- see the constant.
+    """
+    first_week = 0 if year >= FIRST_WEEK_ZERO_SEASON else 1
+    week_params: List[WeekParams] = []
+    for group in NcaaFbGroup:
+        for week_num in range(first_week, N_REGULAR_WEEKS + 1):
+            week_params.append(WeekParams(year, week_num, SeasonType.regular, group))
+        week_params.append(WeekParams(year, 1, SeasonType.post, group))
+    return week_params
 
 
 async def get_season(year: int) -> Season:
@@ -56,11 +87,7 @@ async def get_season(year: int) -> Season:
     if season:
         return season.with_season_start(SEASON_START)
 
-    week_params: List[WeekParams] = []
-    for group in NcaaFbGroup:
-        for week_num in range(1, N_REGULAR_WEEKS + 1):
-            week_params.append(WeekParams(year, week_num, SeasonType.regular, group))
-        week_params.append(WeekParams(year, 1, SeasonType.post, group))
+    week_params = _week_params(year)
 
     weeks = []
     trouble_weeks: List[WeekParams] = []
