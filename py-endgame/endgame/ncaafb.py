@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from itertools import groupby
 from logging import getLogger
-from typing import AsyncIterator, Iterator, List
+from typing import AsyncIterator, Dict, Iterator, List
 
 import aiohttp
 
@@ -10,7 +10,15 @@ from .date import get_end_year
 from .espn_games import get_games, save_seasons
 from .espn_odds import Odds, get_odds
 from .season_cache import SeasonCache
-from .types import Game, NcaaFbGroup, Season, SeasonType, Week, WeekParams
+from .types import (
+    Game,
+    NcaaFbGroup,
+    Season,
+    SeasonType,
+    Week,
+    WeekParams,
+    supersedes,
+)
 from .web import RequestParameters
 
 logger = getLogger(__name__)
@@ -149,20 +157,33 @@ async def get_current_odds() -> AsyncIterator[Odds]:
 
 
 def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:
-    # Removes duplicates that come from when teams play across divisions
-    # Assumption: those still show up under the same week number
-    # ...I'm not totally sure that's the case
+    """
+    Collapse the copies of a game that came back under more than one
+    division into one game.
+
+    Half of an FBS week is cross-division: 48 of the 99 games ESPN listed
+    for 2026 week 1 were in the FCS response too. The divisions are fetched
+    one after another, so the two copies are minutes apart -- identical once
+    a game is final, and not while it's being played. So they're pooled by
+    game_id and `supersedes` picks which stands, rather than deduped by
+    tuple equality, which silently keeps both the moment they differ.
+
+    Assumption: cross-division games show up under the same week number in
+    both responses. ...I'm not totally sure that's the case.
+    """
+
     def key(w: Week) -> int:
         return w.number
 
     for number, matched_weeks in groupby(sorted(weeks, key=key), key=key):
-        games: List[Game] = []
+        games: Dict[str, Game] = {}
         for week in matched_weeks:
-            games += week.games
-        # set() to drop the cross-division duplicates, then sort so the
-        # week's games don't come out in an arbitrary (and run-to-run
-        # unstable) hash order.
-        yield Week(sorted(set(games), key=lambda g: g.date), number)
+            for game in week.games:
+                if supersedes(game, games.get(game.game_id)):
+                    games[game.game_id] = game
+        # Sorted so the week's games don't come out in an arbitrary (and
+        # run-to-run unstable) order.
+        yield Week(sorted(games.values(), key=lambda g: g.date), number)
 
 
 async def _get_week(

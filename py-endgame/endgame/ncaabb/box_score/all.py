@@ -101,9 +101,16 @@ async def get_season_box_scores(
     # A week at a time, so the work is batched (and logged) in chunks
     # rather than firing off a whole season's games at once.
     for week in iter_weeks(season):
+        # A game that hasn't finished has no box score to fetch: ESPN serves
+        # the page, there are just no players on it, so `get_box_score`
+        # parses two tables it can't find and returns None. Skipping them
+        # here is what lets a season carry games that haven't been played --
+        # otherwise every unplayed game costs a request on every run between
+        # now and kickoff.
+        finished = [game for game in week.games if game.completed]
         args = [
             (gender, game.game_id)
-            for game in week.games
+            for game in finished
             if game.game_id not in game_id_filter
         ]
         if args:
@@ -114,9 +121,11 @@ async def get_season_box_scores(
                     yield game
         else:
             logger.info(
-                "Skipping box scores for %d %d, already pulled",
+                "Nothing to pull for box scores %d %d (%d of %d games finished)",
                 season.year,
                 week.number,
+                len(finished),
+                len(week.games),
             )
 
 

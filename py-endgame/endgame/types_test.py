@@ -13,6 +13,7 @@ from .types import (
     check_weeks_dont_overlap,
     iter_weeks,
     merge_weekly_seasons,
+    supersedes,
 )
 
 
@@ -240,6 +241,39 @@ def _scored(game: Game, home_score: int, away_score: int) -> Game:
     return game._replace(home_score=home_score, away_score=away_score)
 
 
+def _unplayed(game: Game) -> Game:
+    """The same game as ESPN reports it before it's final."""
+    return game._replace(completed=False)
+
+
+class TestSupersedes:
+    """Which copy of a game stands when the same game is fetched twice.
+
+    Unreachable while unplayed games are dropped at the fetch, since every
+    copy is then complete and this is just "later wins". It's here so that
+    keeping them is a change to that one filter.
+    """
+
+    def test_anything_beats_nothing(self) -> None:
+        assert supersedes(_game(4, "game"), None)
+
+    def test_later_wins_between_two_finals(self) -> None:
+        """A score gets corrected upstream, so the fresh copy has to win."""
+        assert supersedes(_scored(_game(4, "game"), 42, 17), _game(4, "game"))
+
+    def test_a_final_replaces_a_game_in_progress(self) -> None:
+        assert supersedes(_game(4, "game"), _unplayed(_game(4, "game")))
+
+    def test_a_game_in_progress_never_replaces_a_final(self) -> None:
+        """The copies of a live game disagree, and a final is the answer."""
+        assert not supersedes(_unplayed(_game(4, "game")), _game(4, "game"))
+
+    def test_later_wins_between_two_copies_in_progress(self) -> None:
+        """Neither is final, so the fresher scoreline is the better one."""
+        live = _unplayed(_game(4, "game"))
+        assert supersedes(_scored(live, 15, 10), live)
+
+
 class TestMergeWeeklySeasons:
     """Folding a fresh pull over what's already saved.
 
@@ -278,6 +312,32 @@ class TestMergeWeeklySeasons:
 
         [game] = [g for w in merged.weeks for g in w.games]
         assert (game.home_score, game.away_score) == (42, 17)
+
+    def test_a_finished_game_is_not_walked_back_to_a_live_one(self) -> None:
+        """A re-pull mid-game must not overwrite yesterday's final.
+
+        "Later wins" on its own does exactly that: the fresh season is
+        merged second, so its in-progress copy would replace the result
+        already in the bucket.
+        """
+        final = _game(4, "game")
+        old = Season([Week([final], 1)], 2023)
+        mid_game = Season([Week([_scored(_unplayed(final), 15, 10)], 1)], 2023)
+
+        merged = merge_weekly_seasons([old, mid_game])
+
+        [game] = [g for w in merged.weeks for g in w.games]
+        assert game == final
+
+    def test_a_game_that_finished_since_the_last_pull_is_taken(self) -> None:
+        stale = _scored(_unplayed(_game(4, "game")), 15, 10)
+        old = Season([Week([stale], 1)], 2023)
+        fresh = Season([Week([_scored(_game(4, "game"), 22, 10)], 1)], 2023)
+
+        merged = merge_weekly_seasons([old, fresh])
+
+        [game] = [g for w in merged.weeks for g in w.games]
+        assert (game.completed, game.home_score, game.away_score) == (True, 22, 10)
 
     def test_each_game_keeps_the_week_it_was_fetched_under(self) -> None:
         """ESPN's week numbers are how a game is traced back to its request.

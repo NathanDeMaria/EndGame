@@ -99,13 +99,23 @@ async def box_scores(gender_name: str, year: int):
     # A week at a time, so the work is batched (and logged) in chunks
     # rather than firing off a whole season's games at once.
     for week in iter_weeks(season):
+        # Only finished games have possessions to count. A season that
+        # carries games which haven't been played would otherwise spend a
+        # request on each of them, every run, until they're played.
+        finished = [game for game in week.games if game.completed]
         args = [
             (gender, game.game_id)
-            for game in week.games
-            if game.game_id not in pulled_game_ids
+            for game in finished
+            if game.game_id not in pulled_game_ids and game.completed
         ]
         if not args:
-            logger.info("No new matchups for %d %d", season.year, week.number)
+            logger.info(
+                "No new matchups for %d %d (%d of %d games finished)",
+                season.year,
+                week.number,
+                len(finished),
+                len(week.games),
+            )
             continue
         logger.info("Getting matchups for %d %d", season.year, week.number)
         games = apply_in_parallel(get_possessions, args)

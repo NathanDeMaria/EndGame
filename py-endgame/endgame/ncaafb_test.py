@@ -2,7 +2,12 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from . import ncaafb
-from .ncaafb import FIRST_WEEK_ZERO_SEASON, SEASON_START, _week_params
+from .ncaafb import (
+    FIRST_WEEK_ZERO_SEASON,
+    SEASON_START,
+    _remove_cross_division_duplicates,
+    _week_params,
+)
 from .season_cache import SeasonCache
 from .types import (
     Game,
@@ -26,6 +31,67 @@ def _game(month: int, day: int, game_id: str, year: int = 2021) -> Game:
         date=datetime(year, month, day, tzinfo=timezone.utc),
         game_id=game_id,
     )
+
+
+def _live(game: Game, home_score: int, away_score: int) -> Game:
+    """The same game as ESPN reports it while it's being played."""
+    return game._replace(completed=False, home_score=home_score, away_score=away_score)
+
+
+class TestRemovingCrossDivisionDuplicates:
+    """Half an FBS week comes back under FCS too.
+
+    48 of the 99 games ESPN listed for 2026 week 1 were in both responses.
+    The divisions are fetched one after another, so the two copies of a game
+    are minutes apart.
+    """
+
+    def test_identical_copies_collapse(self) -> None:
+        game = _game(9, 4, "cross-division")
+
+        [week] = _remove_cross_division_duplicates([Week([game], 1), Week([game], 1)])
+
+        assert week.games == [game]
+
+    def test_copies_of_a_live_game_collapse_though_they_differ(self) -> None:
+        """Tuple equality keeps both here, which is two rows for one game."""
+        game = _game(9, 4, "cross-division")
+        first, second = _live(game, 7, 3), _live(game, 15, 10)
+
+        [week] = _remove_cross_division_duplicates(
+            [Week([first], 1), Week([second], 1)]
+        )
+
+        # Neither is final, so the fresher scoreline stands.
+        assert week.games == [second]
+
+    def test_a_final_wins_however_the_divisions_came_back(self) -> None:
+        game = _game(9, 4, "cross-division")
+        live = _live(game, 15, 10)
+
+        for weeks in (
+            [Week([live], 1), Week([game], 1)],
+            [Week([game], 1), Week([live], 1)],
+        ):
+            [week] = _remove_cross_division_duplicates(weeks)
+            assert week.games == [game]
+
+    def test_the_weeks_games_stay_in_date_order(self) -> None:
+        late, early = _game(9, 11, "late"), _game(9, 4, "early")
+
+        [week] = _remove_cross_division_duplicates([Week([late], 2), Week([early], 2)])
+
+        assert [g.game_id for g in week.games] == ["early", "late"]
+
+    def test_different_weeks_are_left_apart(self) -> None:
+        weeks = _remove_cross_division_duplicates(
+            [Week([_game(9, 4, "one")], 1), Week([_game(9, 11, "two")], 2)]
+        )
+
+        assert {w.number: [g.game_id for g in w.games] for w in weeks} == {
+            1: ["one"],
+            2: ["two"],
+        }
 
 
 def test_season_start_is_before_the_earliest_game_we_have() -> None:

@@ -33,7 +33,7 @@ from .date import date_range, is_between_dates
 from .espn_games import EventFilter, get_games, save_seasons
 from .espn_odds import Odds, get_odds
 from .season_cache import SeasonCache
-from .types import Game, Season, SeasonStart, SeasonType, Week
+from .types import Game, Season, SeasonStart, SeasonType, Week, supersedes
 from .web import RequestParameters
 
 logger = getLogger(__name__)
@@ -218,7 +218,8 @@ def merge_seasons(league: DailyLeague, seasons: List[Season]) -> Season:
     for season in seasons:
         for week in season.weeks:
             for game in week.games:
-                games[game.game_id] = game
+                if supersedes(game, games.get(game.game_id)):
+                    games[game.game_id] = game
 
     trouble_params = set(sum((s.trouble_params or [] for s in seasons), []))
 

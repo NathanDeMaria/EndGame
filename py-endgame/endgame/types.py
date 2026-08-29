@@ -172,8 +172,13 @@ class Season(NamedTuple):
             )
         # Pool by game_id: the same game can be fetched more than once (a
         # cross-division matchup comes back under both divisions), and the
-        # copies aren't guaranteed to be identical.
-        games = {g.game_id: g for week in self.weeks for g in week.games}
+        # copies aren't guaranteed to be identical -- `supersedes` picks
+        # which one stands.
+        games: Dict[str, Game] = {}
+        for week in self.weeks:
+            for game in week.games:
+                if supersedes(game, games.get(game.game_id)):
+                    games[game.game_id] = game
         return group_games_into_weeks(games.values(), self.year, self.season_start)
 
     def with_season_start(self, season_start: SeasonStart) -> "Season":
@@ -235,13 +240,39 @@ def group_games_into_weeks(
     ]
 
 
+def supersedes(new: Game, old: Optional[Game]) -> bool:
+    """
+    Whether `new` should replace `old` as the copy of a game to keep.
+
+    Every dedupe here answers this question -- across divisions, across
+    weeks, across a fresh fetch and what's already saved -- so they all
+    answer it in one place rather than four.
+
+    Later wins, which is what lets a re-pull correct a score. The exception
+    is a game ESPN has finished being replaced by one it hasn't: copies of a
+    game in progress are fetched minutes apart and disagree, and a final
+    must not be walked back to a live scoreline by whichever request
+    happened to run last.
+
+    While unplayed games are dropped at the fetch (`espn_games.get_games`)
+    this can't fire -- every copy of every game is complete, so it's plain
+    "later wins". It goes in first precisely so that keeping them is a
+    change to one filter rather than to every dedupe downstream of it.
+    """
+    if old is None:
+        return True
+    return new.completed or not old.completed
+
+
 def merge_weekly_seasons(seasons: List[Season]) -> Season:
     """
-    Fold seasons of the same year together, keeping the latest copy of a
+    Fold seasons of the same year together, keeping the best copy of a
     game that shows up in more than one of them.
 
-    The later season wins per game, so a re-pull corrects a score. What it
-    cannot do is *drop* a game: anything only an earlier season knows about
+    `supersedes` decides which that is: the later season wins per game, so
+    a re-pull corrects a score, except that a game already finished is
+    never replaced by one that isn't. What a merge cannot do is *drop* a
+    game: anything only an earlier season knows about
     survives. That is the property that makes a partial fetch safe to write
     over a complete one -- before this, a pull that lost a week to an ESPN
     5xx replaced the season with a smaller one and said nothing.
@@ -260,7 +291,9 @@ def merge_weekly_seasons(seasons: List[Season]) -> Season:
     for season in seasons:
         for week in season.weeks:
             for game in week.games:
-                latest[game.game_id] = (week.number, game)
+                previous = latest.get(game.game_id)
+                if supersedes(game, previous[1] if previous else None):
+                    latest[game.game_id] = (week.number, game)
 
     by_number: Dict[int, List[Game]] = {}
     for number, game in latest.values():

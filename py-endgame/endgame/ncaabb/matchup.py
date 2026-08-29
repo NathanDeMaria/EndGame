@@ -37,7 +37,10 @@ async def save_possessions(gender: NcaabbGender, location: Optional[str] = None)
         # rather than firing off a whole season's games at once.
         for week in iter_weeks(season):
             logger.info("Getting matchups for %d %d", season.year, week.number)
-            args = [(gender, game.game_id) for game in week.games]
+            # Only finished games have possessions to count -- see
+            # `get_season_box_scores` for why that's checked rather than
+            # assumed.
+            args = [(gender, game.game_id) for game in week.games if game.completed]
             games = apply_in_parallel(get_possessions, args)
             async for sides in games:
                 if sides is None:
