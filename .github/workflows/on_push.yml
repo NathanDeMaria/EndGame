@@ -34,8 +34,37 @@ jobs:
       working-directory: ${{ matrix.package }}
       run: poetry run ty check .
 
+  # Not matrixed over both packages the way `lint` is, because only one of
+  # them has tests a merge gate can run. py-endgame-aws's `stores_test.py`
+  # lists a real S3 bucket and `main_test.py` is a hand-run script rather
+  # than a test at all -- so there is nothing there to gate on yet, and
+  # pretending otherwise would mean wiring AWS credentials into a job that
+  # currently needs none.
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install poetry
+      run: pip install poetry
+    - name: Install dependencies
+      working-directory: py-endgame
+      run: poetry install
+    # `not network` drops the two play-by-play tests, which call ESPN for
+    # real and assert exact counts against what it serves back. They are
+    # worth having and a local `pytest` still runs them; they are not worth
+    # gating a merge on, because then an ESPN outage, a rate limit, or a
+    # play-by-play revised upstream fails the build for reasons that have
+    # nothing to do with the commit.
+    - name: pytest
+      working-directory: py-endgame
+      run: poetry run pytest -m "not network"
+
   make-push:
-    needs: lint
+    needs: [lint, test]
     runs-on: ubuntu-latest
 
     env:
