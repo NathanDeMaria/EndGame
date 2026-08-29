@@ -1,7 +1,17 @@
 from datetime import date
 
+import pytest
+
 from .ncaabb import NcaabbGender
 from .plays import get_plays, get_plays_for_day
+
+# These two call ESPN for real and assert exact counts against whatever it
+# serves back, so they check the live API rather than this code. Worth
+# keeping and worth running -- a `pytest` with no arguments still runs them
+# -- but not worth wiring a merge gate to, which is what putting them in CI
+# would do: the build would then fail for an ESPN outage, a rate limit, or a
+# play-by-play someone upstream revised.
+pytestmark = pytest.mark.network
 
 
 async def test_plays() -> None:

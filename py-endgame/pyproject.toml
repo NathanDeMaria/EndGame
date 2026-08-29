@@ -30,6 +30,12 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    # Calls a third-party API for real. Runs by default, so a local `pytest`
+    # is unchanged; CI deselects it with `-m "not network"` -- see the
+    # workflow for why.
+    "network: talks to a live third-party API",
+]
 
 [tool.ruff]
 line-length = 88
