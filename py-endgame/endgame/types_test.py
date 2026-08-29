@@ -4,11 +4,15 @@ import pytest
 
 from .types import (
     Game,
+    NcaaFbGroup,
     OverlappingWeeksError,
     Season,
+    SeasonType,
     Week,
+    WeekParams,
     check_weeks_dont_overlap,
     iter_weeks,
+    merge_weekly_seasons,
 )
 
 
@@ -230,3 +234,97 @@ def test_iter_weeks_walks_source_weeks_without_a_season_start() -> None:
     season = Season([Week([_game(13)], 2), Week([_game(6)], 1)], 2023)
 
     assert [w.number for w in iter_weeks(season)] == [1, 2]
+
+
+def _scored(game: Game, home_score: int, away_score: int) -> Game:
+    return game._replace(home_score=home_score, away_score=away_score)
+
+
+class TestMergeWeeklySeasons:
+    """Folding a fresh pull over what's already saved.
+
+    The property that matters is that a merge can only add and correct.
+    Before it, `games` wrote whatever the fetch returned straight over the
+    season in the bucket -- so a pull that lost a week to an ESPN 5xx
+    replaced a complete season with a smaller one, silently.
+    """
+
+    def test_a_game_only_the_old_season_has_survives(self) -> None:
+        old = Season([Week([_game(4, "kept")], 1)], 2023)
+        # What a pull that dropped a week looks like: fewer games, no error.
+        partial = Season([Week([_game(11, "fresh")], 2)], 2023)
+
+        merged = merge_weekly_seasons([old, partial])
+
+        assert {g.game_id for w in merged.weeks for g in w.games} == {
+            "kept",
+            "fresh",
+        }
+
+    def test_an_empty_pull_cannot_empty_the_season(self) -> None:
+        old = Season([Week([_game(4, "kept")], 1)], 2023)
+
+        merged = merge_weekly_seasons([old, Season([], 2023)])
+
+        assert [g.game_id for w in merged.weeks for g in w.games] == ["kept"]
+
+    def test_the_later_copy_wins(self) -> None:
+        """A score gets corrected upstream, so the fresh copy has to win."""
+        stale = _game(4, "game")
+        old = Season([Week([stale], 1)], 2023)
+        fresh = Season([Week([_scored(stale, 42, 17)], 1)], 2023)
+
+        merged = merge_weekly_seasons([old, fresh])
+
+        [game] = [g for w in merged.weeks for g in w.games]
+        assert (game.home_score, game.away_score) == (42, 17)
+
+    def test_each_game_keeps_the_week_it_was_fetched_under(self) -> None:
+        """ESPN's week numbers are how a game is traced back to its request.
+
+        Merging through a date-based regroup -- which is what the daily
+        leagues' merge does -- would replace them with calendar weeks and
+        lose that.
+        """
+        old = Season([Week([_game(4, "early")], 3)], 2023)
+        fresh = Season([Week([_game(11, "late")], 9)], 2023)
+
+        merged = merge_weekly_seasons([old, fresh])
+
+        assert {w.number: [g.game_id for g in w.games] for w in merged.weeks} == {
+            3: ["early"],
+            9: ["late"],
+        }
+
+    def test_trouble_params_are_unioned_without_being_sorted(self) -> None:
+        """They hold enums, and enums don't order.
+
+        Deduping through a sorted set raises TypeError here, which is the
+        kind of thing that only shows up on the one season that had a bad
+        week.
+        """
+        first = WeekParams(2023, 3, SeasonType.regular, NcaaFbGroup.fbs)
+        second = WeekParams(2023, 9, SeasonType.post, NcaaFbGroup.fcs)
+        old = Season([], 2023, [first, second])
+        fresh = Season([], 2023, [second])
+
+        merged = merge_weekly_seasons([old, fresh])
+
+        assert merged.trouble_params is not None
+        assert set(merged.trouble_params) == {first, second}
+        assert len(merged.trouble_params) == 2
+
+    def test_an_untagged_old_season_does_not_untag_the_new_one(self) -> None:
+        """Seasons pickled before `season_start` existed come back untagged.
+
+        Taking the first one's tag would drop the new season's, and the
+        chronological walk silently goes back to the source's week order.
+        """
+        untagged = Season([Week([_game(4, "old")], 1)], 2023)
+        tagged = Season([Week([_game(11, "new")], 2)], 2023, [], (8, 20))
+
+        assert merge_weekly_seasons([untagged, tagged]).season_start == (8, 20)
+
+    def test_it_refuses_seasons_from_different_years(self) -> None:
+        with pytest.raises(AssertionError):
+            merge_weekly_seasons([Season([], 2023), Season([], 2024)])
