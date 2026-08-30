@@ -24,31 +24,54 @@ RUN python3 -m venv "$POETRY_HOME" \
 # ~/.aws-batch/config.json resolve to the same paths in a Batch job as on a
 # laptop.
 #
-# The chown is because poetry.toml turns virtualenvs off, so /usr/local *is*
-# the environment. Three paths under it have to be writable by dev:
+# The chowns are because poetry.toml turns virtualenvs off, so /usr/local *is*
+# the environment.
+#
+# The recursive one covers the paths poetry actually writes into:
 #   site-packages  installed packages
 #   bin            console scripts (`endgame`, `endgame-aws`)
 #   src            git checkouts. Poetry clones VCS deps -- `endgame` is one --
 #                  into `env.path / "src"`, NOT into the cache dir, so with no
 #                  virtualenv that resolves to /usr/local/src, and a root-owned
 #                  one fails the install with EPERM.
-# The rest of the stdlib stays root-owned; chowning it would copy ~50M into
-# this layer for nothing. Here rather than after the install below so the chown
-# walks an empty site-packages.
+#   share          where a wheel's `data` payload lands. Sparse but not empty:
+#                  ipython alone drops a man page into share/man/man1, and the
+#                  install dies with EPERM on it. 48K, so -R costs nothing.
 #
-# site-packages is looked up rather than spelled out, so this survives the
-# python bump the pinned digest above is going to get eventually.
+# The second one is a different problem and is deliberately NOT recursive.
+# Before installing anything, poetry checks *every* sysconfig scheme path for
+# writability (Env.scheme_dict), including ones no wheel here has any content
+# for, and if a single check fails it silently relocates the whole install to
+# the user scheme under ~/.local. stdlib and include are exactly that: probed,
+# never written. Leaving them root-owned sent every dependency to
+# ~/.local/lib/pythonX.Y/site-packages -- which poetry then could not see,
+# since it discovers installed packages by walking sys.path and ~/.local isn't
+# on it here. Each `poetry install` found an empty environment and reinstalled
+# all ~70 packages over the previous copy ("Installing ... over existing file",
+# once per file), and uninstalls never happened at all, so a dependency dropped
+# from pyproject.toml stayed importable. The probe only opens a temp file in
+# each directory, so owning the directories themselves is enough -- and
+# skipping -R is what keeps the ~50M stdlib out of this layer.
+#
+# Both are here rather than after the install below so the recursive one walks
+# an empty site-packages.
+#
+# Paths are looked up rather than spelled out, so this survives the python bump
+# the pinned digest above is going to get eventually.
 RUN apt-get update && apt-get install -y --no-install-recommends sudo \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1000 dev \
     && useradd --uid 1000 --gid 1000 -m -s /bin/bash dev \
     && echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev \
     && chmod 0440 /etc/sudoers.d/dev \
-    && mkdir -p /usr/local/src \
+    && mkdir -p /usr/local/src /usr/local/share \
     && chown -R dev:dev \
         "$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')" \
         /usr/local/bin \
-        /usr/local/src
+        /usr/local/src \
+        /usr/local/share \
+    && chown dev:dev $(python3 -c 'import sysconfig; p = sysconfig.get_paths(); \
+        print(p["stdlib"], p["platstdlib"], p["include"], p["platinclude"], p["data"])')
 
 USER dev
 WORKDIR /home/dev
@@ -64,8 +87,22 @@ RUN mkdir -p /home/dev/.aws /home/dev/.aws-batch /home/dev/.endgame
 # Claude Code and anything else installed per-user lands here.
 ENV PATH="/home/dev/.local/bin:${PATH}"
 
-COPY --chown=dev:dev poetry.* ./
-COPY --chown=dev:dev pyproject.toml ./
+# The build context is the whole monorepo, not py-endgame-aws -- see the
+# Makefile and devcontainer.json. It has to be: `endgame` is a path
+# dependency on the sibling package now, so the install below can only work
+# if that package is in the image too, and nothing outside the context can
+# be copied in.
+#
+# The two are laid out the way they sit in the repo, since the `../py-endgame`
+# in pyproject.toml is resolved relative to wherever pyproject.toml ends up.
+WORKDIR /home/dev/py-endgame-aws
+COPY --chown=dev:dev py-endgame /home/dev/py-endgame
+COPY --chown=dev:dev py-endgame-aws/poetry.* ./
+COPY --chown=dev:dev py-endgame-aws/pyproject.toml ./
+# `endgame` is sometimes installed as an editable path dependency, so /home/dev/py-endgame
+# has to stay in the image: the install is a .pth file pointing at it, not a
+# copy of it. It's a couple hundred KB, and keeping the layer means a runtime
+# image and a devcontainer resolve `endgame` the same way.
 RUN poetry install --no-root --only main
 
 
@@ -74,7 +111,7 @@ RUN poetry install --no-root --only main
 FROM base AS runtime
 
 # Copying everything outside of the workdir, for use as a deployed Docker image
-ADD --chown=dev:dev . /home/dev/runtime
+ADD --chown=dev:dev py-endgame-aws /home/dev/runtime
 
 ENTRYPOINT ["python", "/home/dev/runtime/main.py"]
 CMD ["--", "--help"]
@@ -158,13 +195,13 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 #
 # Keep this script silent: BASH_ENV is read before *every* non-interactive
 # bash, so anything it prints lands in the output of every `$(...)` capture.
-COPY --chown=dev:dev .devcontainer/local-env.sh /home/dev/.local-env.sh
+COPY --chown=dev:dev py-endgame-aws/.devcontainer/local-env.sh /home/dev/.local-env.sh
 ENV BASH_ENV=/home/dev/.local-env.sh
 RUN echo '. /home/dev/.local-env.sh' >> "/home/dev/.bashrc"
 
 # Is this a good way to add stuff on load?
 # Not sure, but it's working
-COPY --chown=dev:dev profile.sh /home/dev/profile.sh
+COPY --chown=dev:dev py-endgame-aws/profile.sh /home/dev/profile.sh
 RUN echo ". /home/dev/profile.sh" >> "/home/dev/.bashrc"
 
 RUN endgame -- --completion bash > ~/.endgame-completion.sh && echo ". ~/.endgame-completion.sh" >> "/home/dev/.bashrc"

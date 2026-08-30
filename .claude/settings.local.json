@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(poetry --version)",
+      "Bash(poetry install *)",
+      "Read(//home/dev/.local/lib/python3.14/site-packages/**)",
+      "Bash(python -c \"import sys; print\\([p for p in sys.path]\\)\")",
+      "Bash(poetry show *)",
+      "Bash(python -m pip uninstall -y endgame)",
+      "Bash(python -c \"import endgame; print\\(endgame.__file__\\)\")",
+      "Bash(cd *)",
+      "Bash(python -m pytest endgame/football_plays_test.py -q)",
+      "Read(//opt/poetry/lib/python3.14/site-packages/poetry/utils/env/**)",
+      "Read(//usr/local/lib/python3.14/site-packages/**)",
+      "Bash(sed -E 's/-[^-]+\\\\.dist-info$//')"
+    ]
+  }
+}

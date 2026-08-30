@@ -1,7 +1,9 @@
 {
   "name": "endgame-aws",
   "build": {
-    "context": "..",
+    // The repo root, not py-endgame-aws: `endgame` is a path dependency on
+    // ../py-endgame, which the build can only reach if it's in the context.
+    "context": "../..",
     "dockerfile": "./Dockerfile",
     "target": "dev"
   },

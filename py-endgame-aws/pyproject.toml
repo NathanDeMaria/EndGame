@@ -11,7 +11,9 @@ authors = []
 python = "^3.12"
 fire = ">=0.4.0,<1.0"
 aiobotocore = "^3.9.0"
+# Git for pushed commits, relative install for local development
 endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "7fcddfdd766f5dd9e59d51d6d4d201b396c4138e", subdirectory = "py-endgame"}
+# endgame = {path = "../py-endgame", develop = true}
 dataclasses-json = ">=0.5.7,<1.0"
 
 [tool.poetry.group.dev.dependencies]
