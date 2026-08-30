@@ -99,12 +99,17 @@ async def _load_box_scores(
 async def box_scores(gender_name: str, year: int):
     gender = NcaabbGender[gender_name]
     season_so_far = await _load_season(_CONFIG.bucket, _build_season_key(year, gender))
-    season = await get_ncaabb_season(year, gender, season_so_far)
+    season = await get_ncaabb_season(year, gender, season_so_far, include_unplayed=True)
     await save_to_s3([season], _CONFIG.bucket, _build_season_key(year, gender))
 
-    has_games = any(game for week in season.weeks for game in week.games)
-    if not has_games:
-        logger.warning("No games found (yet) for %s %d", gender.name, year)
+    # Results, not games. Now that the season carries its fixtures, a
+    # schedule with nothing played yet -- the first weeks of November, or a
+    # season pulled before it starts -- passes "any games at all" and then
+    # falls through to `save_csv_to_s3`, which reads `data[0]` off an empty
+    # list of possessions.
+    has_results = any(game.completed for week in season.weeks for game in week.games)
+    if not has_results:
+        logger.warning("No completed games (yet) for %s %d", gender.name, year)
         return
 
     rows_so_far = await _load_possessions(_CONFIG.bucket, year, gender)
@@ -181,17 +186,35 @@ class _GamesLeague:
 # Leagues whose games are a single "get the season, save it" pull.
 # ncaabb isn't here: its `box_scores` command also pulls possessions/box
 # scores, so it stays a separate, bigger pipeline.
+#
+# Every league carries its fixtures as well as its results, so downstream
+# can see what's coming. Readers split the two on `game.completed`, and tell
+# scheduled from cancelled on `game.status`.
+#
+# What that costs differs by how a league is fetched. nfl and ncaafb are
+# pulled a week at a time and get their schedule for nothing -- the request
+# for a week comes back with its fixtures either way. nhl and wnba are
+# walked a day at a time, so they pay one request per future day, bounded by
+# `DailyLeague.lookahead_days`.
 _GAMES_LEAGUES: dict[str, _GamesLeague] = {
-    "nfl": _GamesLeague(get_season=lambda year, _so_far: get_nfl_season(year)),
-    # The one league that carries its fixtures as well as its results, so
-    # downstream can see what's coming. Everything else is results-only
-    # until it has a reason not to be. Readers split the two on
-    # `game.completed`, and tell scheduled from cancelled on `game.status`.
+    "nfl": _GamesLeague(
+        get_season=lambda year, _so_far: get_nfl_season(year, include_unplayed=True)
+    ),
     "ncaafb": _GamesLeague(
         get_season=lambda year, _so_far: get_ncaafb_season(year, include_unplayed=True)
     ),
-    "nhl": _GamesLeague(get_season=get_nhl_season, incremental=True),
-    "wnba": _GamesLeague(get_season=get_wnba_season, incremental=True),
+    "nhl": _GamesLeague(
+        get_season=lambda year, so_far: get_nhl_season(
+            year, so_far, include_unplayed=True
+        ),
+        incremental=True,
+    ),
+    "wnba": _GamesLeague(
+        get_season=lambda year, so_far: get_wnba_season(
+            year, so_far, include_unplayed=True
+        ),
+        incremental=True,
+    ),
 }
 
 
@@ -557,33 +580,39 @@ async def _load_football_plays(
         return []
 
 
-async def preview_unplayed(year: int | None = None) -> None:
+async def preview_unplayed(league: str = "ncaafb", year: int | None = None) -> None:
     """
-    Report what turning on `include_unplayed` would do to ncaafb's key.
+    Report what a fixture-carrying pull does to a league's key, against
+    what's in the bucket now.
 
-    Writes nothing -- this is the look before the one-line flip in
-    `_GAMES_LEAGUES`, which is the first change that puts games with no
-    result into the bucket the rest of the pipeline reads.
+    Writes nothing. It was the look before the flip in `_GAMES_LEAGUES`,
+    which is on for every league now; what it's still good for is checking a
+    league after the fact, or after a change to a merge.
 
-    The numbers to read before flipping:
+    The numbers to read:
 
     - "completed lost/downgraded" and "duplicate ids" must all be zero.
       Those are the properties a merge is supposed to guarantee, and the
       only ones whose failure is silent.
-    - the two shrink-guard lines. `_count_games` counts every game, so the
-      guard stops meaning "never lose a result" the moment a schedule is
-      in the key -- the completed-only line is what it has to become.
+    - the two shrink-guard lines. `_count_games` counts completed games, so
+      the completed-only line is the one the guard actually enforces; the
+      every-game line moves for reasons that aren't losses.
     - the status breakdown, which is what invisible-string gets.
 
-    Only ncaafb: it's the one league `get_season` takes the flag for. A
-    run is a full re-fetch, so it's slow on purpose -- dozens of requests,
-    the same as a real pull.
+    `league` is any key of `_GAMES_LEAGUES` -- nfl, ncaafb, nhl, wnba. A run
+    is a full re-fetch, so it's slow on purpose: dozens of requests for the
+    week-fetched leagues, a season's worth of days for the daily ones (this
+    passes no `season_so_far`, so there's nothing to resume from).
+
+    `year` defaults to the current NCAAFB season, which is the right answer
+    for the two football leagues and not for the others -- pass it for nhl
+    and wnba rather than trusting the default.
     """
     season_year = year if year is not None else get_end_year(NCAAFB_SEASON_END)
-    key = f"seasons/{season_year}/ncaafb.pkl"
+    key = f"seasons/{season_year}/{league}.pkl"
 
     existing = await _load_season(_CONFIG.bucket, key)
-    pulled = await get_ncaafb_season(season_year, include_unplayed=True)
+    pulled = await _GAMES_LEAGUES[league].get_season(season_year, None)
 
     def by_id(season: Season | None) -> dict[str, Game]:
         if season is None:
