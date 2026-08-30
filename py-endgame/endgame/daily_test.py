@@ -69,16 +69,38 @@ async def _no_games(league: DailyLeague, day: date) -> List[Game]:
 
 
 def _patch_get_games(side_effect=_no_games):
-    return patch.object(
-        daily_module, "get_daily_games", AsyncMock(side_effect=side_effect)
-    )
+    """
+    Stand in for `get_daily_games`, which the doubles below take by day.
+
+    `include_unplayed` is swallowed here rather than added to every double:
+    which days a season walks is what these tests are about, and what the
+    flag does to a single day belongs to `get_daily_games`'s own tests. The
+    mock still records it, so `_unplayed_flags` can check it was passed on.
+    """
+
+    async def _call(league: DailyLeague, day: date, **_kwargs) -> List[Game]:
+        return await side_effect(league, day)
+
+    return patch.object(daily_module, "get_daily_games", AsyncMock(side_effect=_call))
 
 
 def _called_days(mock_get_games: AsyncMock) -> List[date]:
-    # get_daily_games is called as get_daily_games(league, day), so
-    # rebuilding from .args also checks nothing was passed by keyword.
-    assert all(not call.kwargs for call in mock_get_games.await_args_list)
+    # get_daily_games is called as get_daily_games(league, day,
+    # include_unplayed=...), so rebuilding from .args also checks the day
+    # itself wasn't passed by keyword.
+    assert all(
+        set(call.kwargs) <= {"include_unplayed"}
+        for call in mock_get_games.await_args_list
+    )
     return [call.args[1] for call in mock_get_games.await_args_list]
+
+
+def _unplayed_flags(mock_get_games: AsyncMock) -> set:
+    """The distinct `include_unplayed` values a season's days were asked with."""
+    return {
+        call.kwargs.get("include_unplayed", False)
+        for call in mock_get_games.await_args_list
+    }
 
 
 def _frozen_today(today: date):
@@ -329,6 +351,88 @@ async def test_get_season__doesnt_cache_an_unfinished_season(
     assert _called_days(mock_get_games) == []
 
 
+class TestCarryingFixtures:
+    """A season pulled with `include_unplayed`, so it holds what's coming.
+
+    A league walked by day only sees a fixture by asking for the day it
+    falls on, so the flag on its own would find nothing but the unfinished
+    games on days already gone. The walk has to run past today too, which is
+    the half these cover.
+    """
+
+    # Deep enough into 2015-16 that there's a season either side of it
+    _MID_SEASON = date(_FINISHED_NHL_YEAR + 1, 1, 15)
+
+    async def _walk(self, today: date, **kwargs) -> AsyncMock:
+        with _frozen_today(today), _patch_get_games() as mock_get_games:
+            await get_season(
+                NHL, _FINISHED_NHL_YEAR, season_cache=_FakeSeasonCache(), **kwargs
+            )
+        return mock_get_games
+
+    async def test_a_results_only_pull_still_stops_at_today(self) -> None:
+        mock_get_games = await self._walk(self._MID_SEASON)
+
+        assert max(_called_days(mock_get_games)) == self._MID_SEASON - timedelta(days=1)
+        assert _unplayed_flags(mock_get_games) == {False}
+
+    async def test_the_walk_runs_a_lookahead_past_today(self) -> None:
+        mock_get_games = await self._walk(self._MID_SEASON, include_unplayed=True)
+
+        # date_range's end is exclusive, so the last day asked for is the
+        # day before the horizon
+        assert max(_called_days(mock_get_games)) == self._MID_SEASON + timedelta(
+            days=NHL.lookahead_days - 1
+        )
+        assert _unplayed_flags(mock_get_games) == {True}
+
+    async def test_the_lookahead_stops_at_the_end_of_the_season(self) -> None:
+        """A week past the June final isn't next season's fixtures."""
+        season_end = NHL.end_date(_FINISHED_NHL_YEAR)
+
+        mock_get_games = await self._walk(
+            season_end - timedelta(days=2), include_unplayed=True
+        )
+
+        assert max(_called_days(mock_get_games)) == season_end - timedelta(days=1)
+
+    async def test_it_resumes_from_the_last_result_not_the_last_fixture(self) -> None:
+        """Resuming from a fixture starts the walk after the end of it.
+
+        The last game in a season that carries its schedule is one that
+        hasn't been played, often weeks out. Resuming from that day would
+        leave every run fetching an empty range and writing back exactly
+        what it already had -- a pull that never picks up another result and
+        never says so.
+        """
+        played = _game(datetime(_FINISHED_NHL_YEAR + 1, 1, 14, 19), "played")
+        scheduled = _game(
+            datetime(_FINISHED_NHL_YEAR + 1, 1, 20, 19), "scheduled"
+        )._replace(completed=False)
+        season_so_far = Season([Week([played, scheduled], 1)], _FINISHED_NHL_YEAR)
+
+        mock_get_games = await self._walk(
+            self._MID_SEASON, season_so_far=season_so_far, include_unplayed=True
+        )
+
+        called = _called_days(mock_get_games)
+        assert called, "the walk asked for nothing at all"
+        assert min(called) == played.date.date()
+
+    async def test_a_season_of_nothing_but_fixtures_starts_from_the_top(self) -> None:
+        """No result to resume from, so there's no shortcut to take."""
+        scheduled = _game(
+            datetime(_FINISHED_NHL_YEAR + 1, 1, 20, 19), "scheduled"
+        )._replace(completed=False)
+        season_so_far = Season([Week([scheduled], 1)], _FINISHED_NHL_YEAR)
+
+        mock_get_games = await self._walk(
+            self._MID_SEASON, season_so_far=season_so_far, include_unplayed=True
+        )
+
+        assert min(_called_days(mock_get_games)) == NHL.start_date(_FINISHED_NHL_YEAR)
+
+
 async def test_get_season__numbers_weeks_across_the_new_year() -> None:
     """An NHL season's weeks keep counting into January, not restart."""
     october = _game(datetime(_FINISHED_NHL_YEAR, 10, 7, 19), "october")
@@ -348,7 +452,7 @@ async def test_get_season__numbers_weeks_across_the_new_year() -> None:
 
 
 def _patch_espn_games(games: List[Game]):
-    async def fake_get_games(url, parameters, event_filter=None):
+    async def fake_get_games(url, parameters, event_filter=None, **_kwargs):
         return list(games)
 
     return patch.object(
@@ -375,6 +479,34 @@ async def test_wnba_drops_scoreless_games() -> None:
         games = await get_daily_games(WNBA, date(2015, 6, 5))
 
     assert [g.game_id for g in games] == ["real"]
+
+
+async def test_wnba_keeps_a_scoreless_game_it_hasnt_played_yet() -> None:
+    """Every fixture is 0-0, so the filter has to read `completed` too.
+
+    ESPN sends 0s for a game that hasn't tipped off, and `parse_game` writes
+    them for a fixture with no score at all. Dropping on the scoreline alone
+    throws away the whole schedule this pull exists to fetch.
+    """
+    fixture = _game(
+        datetime(2015, 6, 5), "fixture", home_score=0, away_score=0
+    )._replace(completed=False)
+    bogus = _game(datetime(2015, 6, 5), "bogus", home_score=0, away_score=0)
+    real = _game(datetime(2015, 6, 5), "real", home_score=80, away_score=75)
+
+    with _patch_espn_games([fixture, bogus, real]):
+        games = await get_daily_games(WNBA, date(2015, 6, 5), include_unplayed=True)
+
+    assert [g.game_id for g in games] == ["fixture", "real"]
+
+
+@pytest.mark.parametrize("include_unplayed", [False, True])
+async def test_get_daily_games_hands_the_flag_to_espn(include_unplayed: bool) -> None:
+    """`get_games` is what actually drops the unfinished games."""
+    with _patch_espn_games([]) as mock_get_games:
+        await get_daily_games(NHL, date(2015, 11, 5), include_unplayed=include_unplayed)
+
+    assert mock_get_games.await_args.kwargs["include_unplayed"] is include_unplayed
 
 
 @pytest.mark.parametrize(

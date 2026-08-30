@@ -88,11 +88,18 @@ async def get_wnba_season(
     year: int,
     season_so_far: Optional[Season] = None,
     season_cache: Optional[SeasonCache] = None,
+    *,
+    include_unplayed: bool = False,
 ) -> Season:
     """
     Get a WNBA season
+
+    `include_unplayed` carries the fixtures as well as the results -- see
+    `daily.get_season`.
     """
-    return await get_season(WNBA, year, season_so_far, season_cache)
+    return await get_season(
+        WNBA, year, season_so_far, season_cache, include_unplayed=include_unplayed
+    )
 
 
 async def get_wnba_odds(day: date) -> AsyncIterator[Odds]:

@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 from unittest.mock import AsyncMock, patch
 
@@ -7,6 +7,7 @@ import pytest
 from multidict import CIMultiDict, CIMultiDictProxy
 from yarl import URL
 
+from ..constants import DEFAULT_LOOKAHEAD_DAYS
 from ..date import date_range
 from ..season_cache import SeasonCache
 from ..types import group_games_into_weeks
@@ -23,6 +24,7 @@ from .ncaabb import (
     NcaabbGroup,
     Season,
     Week,
+    get_ncaabb_games,
     get_ncaabb_season,
     is_between_dates,
     merge_seasons,
@@ -195,10 +197,22 @@ def _expected_day_params(
 
 
 def _called_day_params(mock_get_games: AsyncMock) -> List[DayParams]:
-    # get_ncaabb_games is called as get_ncaabb_games(*day_param), so
-    # rebuilding from .args also checks nothing was passed by keyword.
-    assert all(not call.kwargs for call in mock_get_games.await_args_list)
+    # get_ncaabb_games is called as get_ncaabb_games(*day_param,
+    # include_unplayed=...), so rebuilding from .args also checks the day
+    # params themselves weren't passed by keyword.
+    assert all(
+        set(call.kwargs) <= {"include_unplayed"}
+        for call in mock_get_games.await_args_list
+    )
     return [DayParams(*call.args) for call in mock_get_games.await_args_list]
+
+
+def _unplayed_flags(mock_get_games: AsyncMock) -> set:
+    """The distinct `include_unplayed` values a season's days were asked with."""
+    return {
+        call.kwargs.get("include_unplayed", False)
+        for call in mock_get_games.await_args_list
+    }
 
 
 async def _no_games(
@@ -208,9 +222,21 @@ async def _no_games(
 
 
 def _patch_get_games(side_effect=_no_games):
-    return patch.object(
-        ncaabb_module, "get_ncaabb_games", AsyncMock(side_effect=side_effect)
-    )
+    """
+    Stand in for `get_ncaabb_games`, which the doubles below take by day.
+
+    `include_unplayed` is swallowed here rather than added to every double:
+    which days a season walks is what these tests are about, and what the
+    flag does to a single day belongs to `get_ncaabb_games`'s own tests. The
+    mock still records it, so `_unplayed_flags` can check it was passed on.
+    """
+
+    async def _call(
+        game_date: date, gender: NcaabbGender, group: NcaabbGroup, **_kwargs
+    ) -> List[Game]:
+        return await side_effect(game_date, gender, group)
+
+    return patch.object(ncaabb_module, "get_ncaabb_games", AsyncMock(side_effect=_call))
 
 
 async def test_get_ncaabb_season__cache_hit_skips_fetching() -> None:
@@ -408,3 +434,213 @@ async def test_get_ncaabb_season__doesnt_cache_an_unfinished_season() -> None:
     assert cache.saved == []
     # Days in the future never get requested
     assert _called_day_params(mock_get_games) == []
+
+
+def _frozen_today(today: date):
+    class _FrozenDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return today
+
+    return patch.object(ncaabb_module, "date", _FrozenDate)
+
+
+def _unplayed(game: Game) -> Game:
+    """The same game as ESPN reports it before it's been played."""
+    return game._replace(completed=False, home_score=0, away_score=0)
+
+
+class TestCarryingFixtures:
+    """A season pulled with `include_unplayed`, so it holds what's coming.
+
+    NCAABB is walked by day, so a fixture is only visible by asking for the
+    day it falls on: the flag on its own would find nothing but the
+    unfinished games on days already gone. The walk has to run past today
+    too, which is the half these cover.
+    """
+
+    # Deep enough into the season that both stretches are underway
+    _MID_SEASON = date(_FINISHED_YEAR + 1, 3, 10)
+
+    async def _walk(self, today: date, **kwargs) -> AsyncMock:
+        with _frozen_today(today), _patch_get_games() as mock_get_games:
+            await get_ncaabb_season(
+                _FINISHED_YEAR,
+                NcaabbGender.mens,
+                season_cache=_FakeSeasonCache(),
+                **kwargs,
+            )
+        return mock_get_games
+
+    async def test_a_results_only_pull_still_stops_at_today(self) -> None:
+        mock_get_games = await self._walk(self._MID_SEASON)
+
+        called = _called_day_params(mock_get_games)
+        assert max(p.date for p in called) == self._MID_SEASON - timedelta(days=1)
+        assert _unplayed_flags(mock_get_games) == {False}
+
+    async def test_the_walk_runs_a_lookahead_past_today(self) -> None:
+        mock_get_games = await self._walk(self._MID_SEASON, include_unplayed=True)
+
+        called = _called_day_params(mock_get_games)
+        # date_range's end is exclusive, so the last day asked for is the
+        # day before the horizon
+        horizon = self._MID_SEASON + timedelta(days=DEFAULT_LOOKAHEAD_DAYS - 1)
+        assert max(p.date for p in called) == horizon
+        assert _unplayed_flags(mock_get_games) == {True}
+
+    async def test_the_lookahead_reaches_the_postseason_groups(self) -> None:
+        """Both stretches of the season get the window, not just d1."""
+        mock_get_games = await self._walk(self._MID_SEASON, include_unplayed=True)
+
+        called = _called_day_params(mock_get_games)
+        horizon = self._MID_SEASON + timedelta(days=DEFAULT_LOOKAHEAD_DAYS - 1)
+        for group in POSTSEASON_GROUPS:
+            assert max(p.date for p in called if p.group == group) == horizon, (
+                f"{group.name} stopped short of the horizon"
+            )
+
+    async def test_the_lookahead_stops_at_the_end_of_each_stretch(self) -> None:
+        """A week past April 1st isn't more regular season."""
+        regular_end = date(_FINISHED_YEAR + 1, *REGULAR_SEASON_END)
+
+        mock_get_games = await self._walk(
+            regular_end - timedelta(days=2), include_unplayed=True
+        )
+
+        called = _called_day_params(mock_get_games)
+        d1_days = [p.date for p in called if p.group == NcaabbGroup.d1]
+        assert max(d1_days) == regular_end - timedelta(days=1)
+
+    async def test_it_resumes_from_the_last_result_not_the_last_fixture(self) -> None:
+        """Resuming from a fixture starts the walk after the end of it.
+
+        The last game in a season that carries its schedule is one that
+        hasn't been played, often weeks out. Resuming from that day would
+        leave every run fetching an empty range and writing back exactly
+        what it already had -- a pull that never picks up another result and
+        never says so.
+        """
+        played = _dated_game(datetime(_FINISHED_YEAR + 1, 3, 9, 19), "played")
+        scheduled = _unplayed(
+            _dated_game(datetime(_FINISHED_YEAR + 1, 3, 20, 19), "scheduled")
+        )
+        season_so_far = Season([Week([played, scheduled], 19)], _FINISHED_YEAR)
+
+        mock_get_games = await self._walk(
+            self._MID_SEASON, season_so_far=season_so_far, include_unplayed=True
+        )
+
+        called = _called_day_params(mock_get_games)
+        assert called, "the walk asked for nothing at all"
+        assert min(p.date for p in called) == played.date.date()
+
+
+def _patch_espn_games(games: List[Game]):
+    async def fake_get_games(url, parameters, event_filter=None, **_kwargs):
+        return list(games)
+
+    return patch.object(
+        ncaabb_module, "get_games", AsyncMock(side_effect=fake_get_games)
+    )
+
+
+async def test_get_ncaabb_games_drops_a_finished_scoreless_game() -> None:
+    """Montana State at Northern Arizona, 2003-02-28: basketball isn't 0-0."""
+    bogus = _dated_game(datetime(2003, 2, 28, 19), "bogus")._replace(
+        home_score=0, away_score=0
+    )
+    real = _dated_game(datetime(2003, 2, 28, 19), "real")
+
+    with _patch_espn_games([bogus, real]):
+        games = await get_ncaabb_games(
+            date(2003, 2, 28), NcaabbGender.mens, NcaabbGroup.d1
+        )
+
+    assert [g.game_id for g in games] == ["real"]
+
+
+async def test_get_ncaabb_games_keeps_a_scoreless_game_it_hasnt_played_yet() -> None:
+    """Every fixture is 0-0, so the filter has to read `completed` too.
+
+    ESPN sends 0s for a game that hasn't tipped off, and `parse_game` writes
+    them for a fixture with no score at all. Dropping on the scoreline alone
+    throws away the whole schedule this pull exists to fetch.
+    """
+    fixture = _unplayed(_dated_game(datetime(2003, 2, 28, 19), "fixture"))
+    bogus = _dated_game(datetime(2003, 2, 28, 19), "bogus")._replace(
+        home_score=0, away_score=0
+    )
+    real = _dated_game(datetime(2003, 2, 28, 19), "real")
+
+    with _patch_espn_games([fixture, bogus, real]):
+        games = await get_ncaabb_games(
+            date(2003, 2, 28),
+            NcaabbGender.mens,
+            NcaabbGroup.d1,
+            include_unplayed=True,
+        )
+
+    assert [g.game_id for g in games] == ["fixture", "real"]
+
+
+@pytest.mark.parametrize("include_unplayed", [False, True])
+async def test_get_ncaabb_games_hands_the_flag_to_espn(include_unplayed: bool) -> None:
+    """`get_games` is what actually drops the unfinished games."""
+    with _patch_espn_games([]) as mock_get_games:
+        await get_ncaabb_games(
+            date(2003, 2, 28),
+            NcaabbGender.mens,
+            NcaabbGroup.d1,
+            include_unplayed=include_unplayed,
+        )
+
+    assert mock_get_games.await_args.kwargs["include_unplayed"] is include_unplayed
+
+
+class TestMergeSeasonsKeepsResults:
+    """Which copy of a game a merge keeps, once one of them can be unplayed.
+
+    `merge_seasons` folds a fresh pull over what's already in the bucket,
+    and the fresh one is second. Plain "latest wins" therefore replaces
+    yesterday's final with today's in-progress copy of it.
+    """
+
+    def test_a_finished_game_is_not_walked_back_to_a_live_one(self) -> None:
+        final = _dated_game(datetime(_FINISHED_YEAR, 11, 1, 19), "game")
+        saved = Season([Week([final], 1)], _FINISHED_YEAR)
+        mid_game = Season(
+            [Week([final._replace(completed=False, home_score=41, away_score=38)], 1)],
+            _FINISHED_YEAR,
+        )
+
+        merged = merge_seasons([saved, mid_game])
+
+        [game] = [g for w in merged.weeks for g in w.games]
+        assert game == final
+
+    def test_a_game_that_finished_since_the_last_pull_is_taken(self) -> None:
+        stale = _unplayed(_dated_game(datetime(_FINISHED_YEAR, 11, 1, 19), "game"))
+        saved = Season([Week([stale], 1)], _FINISHED_YEAR)
+        final = _dated_game(datetime(_FINISHED_YEAR, 11, 1, 19), "game")
+        fresh = Season([Week([final], 1)], _FINISHED_YEAR)
+
+        merged = merge_seasons([saved, fresh])
+
+        [game] = [g for w in merged.weeks for g in w.games]
+        assert game == final
+
+    def test_a_fixture_is_still_corrected_by_a_later_fixture(self) -> None:
+        """Neither is final, so the fresher copy wins -- a tip-off moves."""
+        early = _unplayed(_dated_game(datetime(_FINISHED_YEAR, 11, 1, 19), "game"))
+        moved = early._replace(date=datetime(_FINISHED_YEAR, 11, 1, 21))
+
+        merged = merge_seasons(
+            [
+                Season([Week([early], 1)], _FINISHED_YEAR),
+                Season([Week([moved], 1)], _FINISHED_YEAR),
+            ]
+        )
+
+        [game] = [g for w in merged.weeks for g in w.games]
+        assert game == moved

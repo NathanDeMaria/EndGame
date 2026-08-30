@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from logging import getLogger
 from typing import AsyncIterator, Iterable, List, NamedTuple
@@ -6,12 +6,12 @@ from typing import AsyncIterator, Iterable, List, NamedTuple
 import aiohttp
 
 from ..async_tools import apply_in_parallel
-from ..constants import ESPN_SPORTS_API_BASE
+from ..constants import DEFAULT_LOOKAHEAD_DAYS, ESPN_SPORTS_API_BASE
 from ..date import date_range, get_end_year, is_between_dates
 from ..espn_games import get_games, save_seasons
 from ..espn_odds import Odds, get_odds
 from ..season_cache import SeasonCache
-from ..types import Game, Season, Week
+from ..types import Game, Season, Week, supersedes
 from ..web import RequestParameters
 from .gender import NcaabbGender
 
@@ -89,17 +89,40 @@ async def get_seasons(gender: NcaabbGender) -> List[Season]:
 
 
 def _last_day_so_far(season_so_far: Season | None) -> date | None:
+    """
+    The day a resuming pull starts from: the last one we have a result for.
+
+    Completed games only. Once a season carries its fixtures, the last game
+    in it is one that hasn't been played -- often weeks out -- and resuming
+    from *that* starts the walk after the day it ends on. The season would
+    then never pick up another result: every run would fetch an empty range,
+    write back what it already had, and say nothing.
+    """
     if season_so_far is None:
         return None
     # Might get the most recent day's games again unnecessarily.
     # That's fine because we don't know if all the games
     # for that day were done last time this was run.
     last_day_done = max(
-        (g.date for w in season_so_far.weeks for g in w.games), default=None
+        (g.date for w in season_so_far.weeks for g in w.games if g.completed),
+        default=None,
     )
     if last_day_done is None:
         return None
     return last_day_done.date()
+
+
+def _horizon(include_unplayed: bool) -> date:
+    """
+    The last day worth asking for.
+
+    A results-only pull stops at today, since no earlier day can gain a game
+    it doesn't already have. A pull carrying fixtures goes on for
+    `DEFAULT_LOOKAHEAD_DAYS`, which each caller still bounds by the end of
+    the stretch it's walking.
+    """
+    today = date.today()
+    return today + timedelta(days=DEFAULT_LOOKAHEAD_DAYS) if include_unplayed else today
 
 
 async def get_ncaabb_season(
@@ -107,24 +130,41 @@ async def get_ncaabb_season(
     gender: NcaabbGender,
     season_so_far: Season | None = None,
     season_cache: SeasonCache | None = None,
+    *,
+    include_unplayed: bool = False,
 ) -> Season:
+    """
+    Get a season of NCAABB, a day at a time.
+
+    `include_unplayed` keeps the games ESPN hasn't finished, so the season
+    carries the fixtures ahead of it as well as the results behind it. A
+    season fetched with it holds games with no result yet -- read
+    `game.completed` before reading a score, and note that anything walking
+    it per-game (possessions, box scores) has to skip the unfinished ones
+    itself.
+
+    It does two things, and both are needed: the flag on the fetch, and the
+    walk running past today rather than stopping there. NCAABB is pulled by
+    day, so a fixture is only visible by asking for the day it falls on.
+    """
     logger.info("Getting NCAABB %s season %d", gender.name, year)
     cache = season_cache or SeasonCache(f"ncaa{gender.name[0]}bb")
     season = cache.check_cache(year)
     if season:
         return season.with_season_start(REGULAR_SEASON_START)
 
+    horizon = _horizon(include_unplayed)
     day_params: List[DayParams] = []
     start = _last_day_so_far(season_so_far) or date(year, *REGULAR_SEASON_START)
     end = date(year + 1, *REGULAR_SEASON_END)
-    # Don't try to get dates in the future
-    end = min(end, date.today())
+    # Don't ask for days past the horizon
+    end = min(end, horizon)
     for day in date_range(start, end):
         day_params.append(DayParams(day, gender, NcaabbGroup.d1))
     start = _last_day_so_far(season_so_far) or date(year + 1, *POST_SEASON_START)
     end = date(year + 1, *SEASON_END)
-    # Don't try to get dates in the future
-    end = min(end, date.today())
+    # Don't ask for days past the horizon
+    end = min(end, horizon)
     for group in POSTSEASON_GROUPS:
         for day in date_range(start, end):
             day_params.append(DayParams(day, gender, group))
@@ -133,7 +173,9 @@ async def get_ncaabb_season(
     trouble_days = []
     for day_param in day_params:
         try:
-            games += await get_ncaabb_games(*day_param)
+            games += await get_ncaabb_games(
+                *day_param, include_unplayed=include_unplayed
+            )
         except aiohttp.ClientResponseError:
             day, gender, group = day_param
             logger.warning(
@@ -176,8 +218,13 @@ def merge_seasons(seasons: List[Season]) -> Season:
     for season in seasons:
         for week in season.weeks:
             for game in week.games:
-                # If a game showed up multiple times, keep the latest version
-                games[game.game_id] = game
+                # If a game showed up multiple times, keep the best version:
+                # the latest, except that a game already finished is never
+                # replaced by one that isn't. Plain "latest wins" is what
+                # would walk a final back to a live scoreline the first time
+                # a run re-fetched a day mid-game.
+                if supersedes(game, games.get(game.game_id)):
+                    games[game.game_id] = game
 
     # Merge trouble params
     trouble_params = set(sum((s.trouble_params or [] for s in seasons), []))
@@ -186,7 +233,11 @@ def merge_seasons(seasons: List[Season]) -> Season:
 
 
 async def get_ncaabb_games(
-    game_date: date, gender: NcaabbGender, group: NcaabbGroup
+    game_date: date,
+    gender: NcaabbGender,
+    group: NcaabbGroup,
+    *,
+    include_unplayed: bool = False,
 ) -> List[Game]:
     logger.info("Getting NCAABB %s %s %s", gender.value, game_date, group.name)
     parameters: RequestParameters = dict(
@@ -197,10 +248,19 @@ async def get_ncaabb_games(
         dates=game_date.strftime("%Y%m%d"),
         groups=group.value,
     )
-    games = await get_games(NCAABB_SCOREBOARD.format(gender.name), parameters)
+    games = await get_games(
+        NCAABB_SCOREBOARD.format(gender.name),
+        parameters,
+        include_unplayed=include_unplayed,
+    )
     # Filtering thanks to Montana State Bobcats at Northern Arizona
-    # Lumberjacks on 2003-02-28 and a bunch of NCAAWBB games
-    return [g for g in games if g.home_score > 0 or g.away_score > 0]
+    # Lumberjacks on 2003-02-28 and a bunch of NCAAWBB games.
+    #
+    # Only a *finished* 0-0 is that bad data. Every unplayed game is 0-0 --
+    # either ESPN sends 0s for a game that hasn't started, or `parse_game`
+    # writes them for a fixture with no score at all -- so dropping on the
+    # scoreline alone would throw away the entire schedule.
+    return [g for g in games if not g.completed or g.home_score > 0 or g.away_score > 0]
 
 
 async def _get_ncaabb_odds(

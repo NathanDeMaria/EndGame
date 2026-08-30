@@ -67,9 +67,28 @@ async def update(location: str = "nfl.csv"):
     save_seasons(seasons, location)
 
 
-async def get_season(year: int) -> Season:
+async def get_season(
+    year: int,
+    # Keyword-only so the positional signature stays `(year,)`, which is what
+    # `apply_in_parallel` unpacks its arg tuples into.
+    *,
+    include_unplayed: bool = False,
+) -> Season:
     """
     Get an NFL season
+
+    `include_unplayed` keeps the games ESPN hasn't finished, so the season
+    carries the fixtures ahead of it as well as the results behind it. A
+    season fetched with it holds games with no result yet -- read
+    `game.completed` before reading a score.
+
+    It costs nothing here: the season is already every week, and a week's
+    request comes back with its fixtures whether or not they've been played.
+
+    It needs nothing from the season cache, which is only written once a
+    season is over and every game in it is complete: there's no unplayed
+    game for a cached season to be missing, so a hit is as good either way
+    and the cache doesn't have to know which way it was fetched.
     """
     logger.info("Getting NFL season %d", year)
     cache = SeasonCache("nfl")
@@ -80,9 +99,17 @@ async def get_season(year: int) -> Season:
     # This "season" is 2019 for the season whose Super Bowl is in 2020
     weeks = []
     for week in range(1, N_REGULAR_WEEKS + 1):
-        weeks.append(await _get_week(year, week, SeasonType.regular))
+        weeks.append(
+            await _get_week(
+                year, week, SeasonType.regular, include_unplayed=include_unplayed
+            )
+        )
     for week in range(1, 6):
-        weeks.append(await _get_week(year, week, SeasonType.post))
+        weeks.append(
+            await _get_week(
+                year, week, SeasonType.post, include_unplayed=include_unplayed
+            )
+        )
     season = Season(weeks, year)
 
     # Cache if the season is over
@@ -93,7 +120,13 @@ async def get_season(year: int) -> Season:
     return season
 
 
-async def _get_week(season: int, week: int, season_type: SeasonType) -> Week:
+async def _get_week(
+    season: int,
+    week: int,
+    season_type: SeasonType,
+    *,
+    include_unplayed: bool = False,
+) -> Week:
     logger.info("Getting NFL %d %s week %d", season, season_type.name, week)
     parameters: RequestParameters = dict(
         lang="en",
@@ -105,7 +138,9 @@ async def _get_week(season: int, week: int, season_type: SeasonType) -> Week:
         week=week,
     )
 
-    games = await get_games(BASE_URL, parameters)
+    games = await get_games(BASE_URL, parameters, include_unplayed=include_unplayed)
+    # Filtering on the home team's name, which a fixture has as much as a
+    # result does -- so this drops the Pro Bowl either way round.
     games = [move_teams(g) for g in games if g.home in REAL_TEAMS]
 
     if season_type == SeasonType.post:

@@ -12,7 +12,10 @@
       "Bash(python -m pytest endgame/football_plays_test.py -q)",
       "Read(//opt/poetry/lib/python3.14/site-packages/poetry/utils/env/**)",
       "Read(//usr/local/lib/python3.14/site-packages/**)",
-      "Bash(sed -E 's/-[^-]+\\\\.dist-info$//')"
+      "Bash(sed -E 's/-[^-]+\\\\.dist-info$//')",
+      "Bash(python -m pytest *)",
+      "Read(//home/dev/.aws-batch/**)",
+      "Bash(timeout 60 aws sts get-caller-identity)"
     ]
   }
 }

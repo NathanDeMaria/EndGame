@@ -12,7 +12,7 @@ tournament groups, possessions, box scores) that it stays on its own code.
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from logging import getLogger
 from typing import (
     AsyncIterator,
@@ -29,6 +29,7 @@ from typing import (
 import aiohttp
 
 from .async_tools import apply_in_parallel
+from .constants import DEFAULT_LOOKAHEAD_DAYS
 from .date import date_range, is_between_dates
 from .espn_games import EventFilter, get_games, save_seasons
 from .espn_odds import Odds, get_odds
@@ -96,6 +97,10 @@ class DailyLeague:
     # here is a game no rule could catch, so a growing list means the rule
     # itself has stopped working.
     untagged_exhibitions: FrozenSet[str] = frozenset()
+    # How many days past today a fixture-carrying pull asks for -- see
+    # `constants.DEFAULT_LOOKAHEAD_DAYS`. Ignored entirely by a results-only
+    # pull, which never looks past today.
+    lookahead_days: int = DEFAULT_LOOKAHEAD_DAYS
 
     def start_date(self, year: int) -> date:
         """
@@ -170,6 +175,8 @@ async def get_season(
     year: int,
     season_so_far: Optional[Season] = None,
     season_cache: Optional[SeasonCache] = None,
+    *,
+    include_unplayed: bool = False,
 ) -> Season:
     """
     Get a season, a day at a time.
@@ -177,6 +184,22 @@ async def get_season(
     Pass `season_so_far` to pick up from the last day it already has rather
     than walking the season from the top. That's what makes a daily run
     cheap for a job that starts with an empty web cache.
+
+    `include_unplayed` keeps the games ESPN hasn't finished, so the season
+    carries the fixtures ahead of it as well as the results behind it. A
+    season fetched with it holds games with no result yet -- read
+    `game.completed` before reading a score.
+
+    It does two things, and both are needed: the flag on the fetch, and the
+    walk running `league.lookahead_days` past today instead of stopping
+    there. A league pulled by day only sees a fixture by asking for the day
+    it falls on, so without the second half the flag finds nothing but the
+    unfinished games on days already past.
+
+    It needs nothing from the season cache, which is only written once a
+    season is over and every game in it is complete: there's no unplayed
+    game for a cached season to be missing, so a hit is as good either way
+    and the cache doesn't have to know which way it was fetched.
     """
     logger.info("Getting %s season %d", league.name, year)
     cache = season_cache or SeasonCache(league.name)
@@ -185,14 +208,21 @@ async def get_season(
         return cached.with_season_start(league.season_start)
 
     start = _last_day_so_far(season_so_far) or league.start_date(year)
-    # Don't try to get dates in the future
-    end = min(league.end_date(year), date.today())
+    # A results-only pull stops at today, since no earlier day can gain a
+    # game it doesn't already have. A pull carrying fixtures goes on for
+    # `lookahead_days`, still bounded by the end of the season.
+    horizon = date.today()
+    if include_unplayed:
+        horizon += timedelta(days=league.lookahead_days)
+    end = min(league.end_date(year), horizon)
 
     games: List[Game] = []
     trouble_days: List[date] = []
     for day in date_range(start, end):
         try:
-            games += await get_daily_games(league, day)
+            games += await get_daily_games(
+                league, day, include_unplayed=include_unplayed
+            )
         except aiohttp.ClientResponseError:
             logger.warning("Marking %s for %s as trouble", day, league.name)
             trouble_days.append(day)
@@ -248,13 +278,23 @@ def _build_season(
 
 
 def _last_day_so_far(season_so_far: Optional[Season]) -> Optional[date]:
+    """
+    The day a resuming pull starts from: the last one we have a result for.
+
+    Completed games only. Once a season carries its fixtures, the last game
+    in it is one that hasn't been played -- often weeks out -- and resuming
+    from *that* starts the walk after the day it ends on. The season would
+    then never pick up another result: every run would fetch an empty range,
+    write back what it already had, and say nothing.
+    """
     if season_so_far is None:
         return None
     # Might get the most recent day's games again unnecessarily.
     # That's fine because we don't know if all the games
     # for that day were done last time this was run.
     last_day_done = max(
-        (g.date for w in season_so_far.weeks for g in w.games), default=None
+        (g.date for w in season_so_far.weeks for g in w.games if g.completed),
+        default=None,
     )
     if last_day_done is None:
         return None
@@ -332,17 +372,31 @@ def league_play_filter(league: DailyLeague) -> EventFilter:
     return _is_league_play
 
 
-async def get_daily_games(league: DailyLeague, day: date) -> List[Game]:
+async def get_daily_games(
+    league: DailyLeague, day: date, *, include_unplayed: bool = False
+) -> List[Game]:
     """
-    Get a single day's completed games, league play only.
+    Get a single day's games, league play only.
+
+    Results only unless `include_unplayed`, which keeps the fixtures too.
     """
     logger.info("Getting %s games for %s", league.name, day)
     games = await get_games(
-        league.scoreboard_url, _day_parameters(day), league_play_filter(league)
+        league.scoreboard_url,
+        _day_parameters(day),
+        league_play_filter(league),
+        include_unplayed=include_unplayed,
     )
     games = [_rename_teams(league, g) for g in games]
     if league.drop_scoreless:
-        games = [g for g in games if g.home_score > 0 or g.away_score > 0]
+        # Only a *finished* 0-0 is the bad data this is here to drop. Every
+        # unplayed game is 0-0 -- either ESPN sends 0s for a game that
+        # hasn't started, or `parse_game` writes them for a fixture with no
+        # score at all -- so dropping on the scoreline alone would throw
+        # away the entire schedule this flag exists to fetch.
+        games = [
+            g for g in games if not g.completed or g.home_score > 0 or g.away_score > 0
+        ]
     return games
 
 
