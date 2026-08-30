@@ -10,4 +10,9 @@ from .io import (
     save_data_to_s3,
     save_to_s3,
 )
-from .stores import get_pbp_store
+from .stores import (
+    FootballPlaysStore,
+    FootballPlaysWeek,
+    get_football_plays_store,
+    get_pbp_store,
+)

@@ -9,11 +9,13 @@ from inspect import iscoroutinefunction
 from typing import AsyncIterator, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
+from endgame.async_tools import apply_in_parallel
 from endgame.date import get_end_year
 from endgame.espn_odds import Odds as EspnOdds
+from endgame.football_plays import FootballLeague, get_game_plays
 from endgame.ncaabb import NcaabbGender, get_plays_for_day
 from endgame.ncaabb.box_score.all import get_season_box_scores
-from endgame.ncaabb.matchup import apply_in_parallel, get_possessions, logger
+from endgame.ncaabb.matchup import get_possessions, logger
 from endgame.ncaabb.ncaabb import (
     REGULAR_SEASON_START,
     Season,
@@ -40,6 +42,9 @@ from fire import Fire
 from . import (
     Config,
     FlattenedBoxScore,
+    FootballPlaysStore,
+    FootballPlaysWeek,
+    get_football_plays_store,
     get_pbp_store,
     list_all_keys,
     read_box_scores,
@@ -427,6 +432,131 @@ async def plays(league: str, day: str | None = None) -> None:
     )
 
 
+async def _load_football_season(league: str, year: int) -> Season:
+    """
+    The season whose games the play-by-play pull walks.
+
+    Read from the bucket rather than fetched, so a pull is one request per
+    game and not a re-fetch of the whole schedule on top. `games` is what
+    puts it there, and the daily job runs that first; a season that isn't
+    there yet is fetched (and not saved) so a one-off backfill still works
+    without having to run `games` by hand first.
+    """
+    key = f"seasons/{year}/{league}.pkl"
+    season = await _load_season(_CONFIG.bucket, key)
+    if season is None:
+        logger.warning("%s isn't in the bucket -- fetching the season instead", key)
+        season = await _GAMES_LEAGUES[league].get_season(year, None)
+    return season
+
+
+async def football_plays(
+    league: str,
+    year: int,
+    week: int | None = None,
+    refresh: bool = False,
+) -> None:
+    """
+    Pull play-by-play for a football season, a week per object.
+
+    `league` is nfl or ncaafb. Pass `week` to do a single week, which is the
+    way to try this out -- a whole NCAAFB season is ~800 games, and every one
+    of them is its own request.
+
+    Incremental by default: a week already in the bucket is topped up with
+    whatever games it's missing, and a week with nothing missing costs one
+    read and no writes. That's what makes this cheap to run daily during the
+    season and what keeps a re-run from re-fetching a finished September.
+    Games ESPN has no play-by-play for -- most of the D2/D3 half of an NCAAFB
+    week -- are stored with an empty `drives` list, so they're "done" rather
+    than retried forever. Pass --refresh=True to re-fetch a week from
+    scratch, for when the plays themselves were revised upstream.
+
+    Only finished games are asked for. An unfinished one has partial
+    play-by-play at best, and storing that would mark it done at whatever
+    score the pull caught it at.
+
+    The week numbers in the keys are the ones `iter_weeks` walks: ESPN's own
+    for the NFL, and calendar weeks counted from the start of the season for
+    NCAAFB, whose source numbering isn't chronological. They line up with the
+    weeks the box score/possession pulls log, not with what a bowl game's
+    ESPN url says.
+    """
+    try:
+        football_league = FootballLeague[league]
+    except KeyError:
+        raise ValueError(
+            f"{league!r} isn't a football league; expected one of "
+            f"{[member.name for member in FootballLeague]}"
+        ) from None
+
+    season = await _load_football_season(league, year)
+    async with get_football_plays_store() as store:
+        for season_week in iter_weeks(season):
+            if week is not None and season_week.number != week:
+                continue
+
+            stored = (
+                []
+                if refresh
+                else await _load_football_plays(store, league, year, season_week.number)
+            )
+            already_pulled = {game["game_id"] for game in stored}
+            to_pull = [
+                game.game_id
+                for game in season_week.games_in_order
+                if game.completed and game.game_id not in already_pulled
+            ]
+            if not to_pull:
+                logger.info(
+                    "No new games for %s %d week %d (%d already stored)",
+                    league,
+                    year,
+                    season_week.number,
+                    len(stored),
+                )
+                continue
+
+            logger.info(
+                "Getting plays for %d games in %s %d week %d",
+                len(to_pull),
+                league,
+                year,
+                season_week.number,
+            )
+            args = [(game_id, football_league) for game_id in to_pull]
+            pulled = [
+                drives async for drives in apply_in_parallel(get_game_plays, args)
+            ]
+            games_plays: FootballPlaysWeek = list(stored) + [
+                {"game_id": game_id, "drives": drives}
+                for game_id, drives in zip(to_pull, pulled, strict=True)
+            ]
+
+            await store.save(games_plays, league, year, season_week.number)
+            logger.info(
+                "Saved %d games (%d plays) for %s %d week %d",
+                len(games_plays),
+                _count_plays(games_plays),
+                league,
+                year,
+                season_week.number,
+            )
+
+
+def _count_plays(games_plays: FootballPlaysWeek) -> int:
+    return sum(len(drive["plays"]) for game in games_plays for drive in game["drives"])
+
+
+async def _load_football_plays(
+    store: FootballPlaysStore, league: str, year: int, week: int
+) -> FootballPlaysWeek:
+    try:
+        return await store.load(league, year, week)
+    except S3NotFoundException:
+        return []
+
+
 async def preview_unplayed(year: int | None = None) -> None:
     """
     Report what turning on `include_unplayed` would do to ncaafb's key.
@@ -561,6 +691,7 @@ def main():
     commands = {
         "backfill_week_zero": backfill_week_zero,
         "box_scores": box_scores,
+        "football_plays": football_plays,
         "games": games,
         "odds": odds,
         "plays": plays,
