@@ -178,16 +178,31 @@ class _GamesLeague:
 # scores, so it stays a separate, bigger pipeline.
 _GAMES_LEAGUES: dict[str, _GamesLeague] = {
     "nfl": _GamesLeague(get_season=lambda year, _so_far: get_nfl_season(year)),
-    "ncaafb": _GamesLeague(get_season=lambda year, _so_far: get_ncaafb_season(year)),
+    # The one league that carries its fixtures as well as its results, so
+    # downstream can see what's coming. Everything else is results-only
+    # until it has a reason not to be. Readers split the two on
+    # `game.completed`, and tell scheduled from cancelled on `game.status`.
+    "ncaafb": _GamesLeague(
+        get_season=lambda year, _so_far: get_ncaafb_season(year, include_unplayed=True)
+    ),
     "nhl": _GamesLeague(get_season=get_nhl_season, incremental=True),
     "wnba": _GamesLeague(get_season=get_wnba_season, incremental=True),
 }
 
 
 def _count_games(season: Season | None) -> int:
+    """
+    How many results a season holds.
+
+    Completed games only, which is what the shrink guard is protecting: a
+    season that carries its fixtures too has a game count that moves for
+    reasons that aren't losses -- a cancellation, a fixture ESPN drops --
+    and guarding that number would fire on a schedule doing what schedules
+    do. Results are the thing a pull must never lose.
+    """
     if season is None:
         return 0
-    return sum(len(week.games) for week in season.weeks)
+    return sum(1 for week in season.weeks for game in week.games if game.completed)
 
 
 async def _save_merged(key: str, existing: Season | None, season: Season) -> int:
