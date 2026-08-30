@@ -46,6 +46,7 @@ from . import (
     FootballPlaysWeek,
     get_football_plays_store,
     get_pbp_store,
+    get_processed_plays_store,
     list_all_keys,
     read_box_scores,
     read_possessions,
@@ -54,6 +55,7 @@ from . import (
     save_to_s3,
 )
 from .io import S3NotFoundException, read_seasons
+from .pbp_transform import transform_week_to_table
 
 _CONFIG = Config.init_from_file()
 
@@ -580,6 +582,77 @@ async def _load_football_plays(
         return []
 
 
+async def process_football_plays(
+    league: str,
+    year: int,
+    week: int | None = None,
+) -> None:
+    """
+    Turn stored raw play-by-play into the weekly parquet files readers use.
+
+    `league` is nfl or ncaafb. Pass `week` for a single week; otherwise every
+    week of the season that has raw plays in the bucket is processed.
+
+    Reads only the bucket -- never ESPN -- so it's safe to re-run, and a
+    change to the transform is a re-run of this rather than another season of
+    requests. That separation is the point of keeping the raw layer
+    untouched: `football_plays` decides what to fetch, this decides what the
+    columns mean.
+
+    Each week is rewritten from its raw object rather than appended to, so
+    the parquet is always a pure function of what `football_plays` stored.
+    The append path (`ProcessedPlaysStore.append_games`) is there for a
+    caller that has a batch of games in hand and doesn't want to re-read the
+    week's raw object; it isn't what this uses.
+    """
+    _check_football_league(league)
+    processed = get_processed_plays_store()
+    async with get_football_plays_store() as raw_store:
+        for week_number in _weeks_to_process(week):
+            try:
+                games = await raw_store.load(league, year, week_number)
+            except S3NotFoundException:
+                if week is not None:
+                    logger.warning(
+                        "No raw plays stored for %s %d week %d -- "
+                        "run football_plays first",
+                        league,
+                        year,
+                        week_number,
+                    )
+                continue
+
+            table = transform_week_to_table(games, league, year, week_number)
+            if table.num_rows == 0:
+                logger.info(
+                    "None of the %d stored games for %s %d week %d have plays",
+                    len(games),
+                    league,
+                    year,
+                    week_number,
+                )
+                continue
+            await processed.save_week(table, league, year, week_number)
+
+
+def _weeks_to_process(week: int | None) -> range:
+    """
+    The weeks to walk. A season's raw objects are keyed by the numbers
+    `iter_weeks` walks, which for both football leagues stay inside 1..25
+    (NCAAFB counts calendar weeks from the season start and runs into
+    January).
+    """
+    return range(week, week + 1) if week is not None else range(1, 26)
+
+
+def _check_football_league(league: str) -> None:
+    if league not in {member.name for member in FootballLeague}:
+        raise ValueError(
+            f"{league!r} isn't a football league; expected one of "
+            f"{[member.name for member in FootballLeague]}"
+        )
+
+
 async def preview_unplayed(league: str = "ncaafb", year: int | None = None) -> None:
     """
     Report what a fixture-carrying pull does to a league's key, against
@@ -724,6 +797,7 @@ def main():
         "games": games,
         "odds": odds,
         "plays": plays,
+        "process_football_plays": process_football_plays,
         "preview_unplayed": preview_unplayed,
         "regroup_ncaabb_weeks": regroup_ncaabb_weeks,
     }

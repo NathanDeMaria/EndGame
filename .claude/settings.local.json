@@ -15,7 +15,8 @@
       "Bash(sed -E 's/-[^-]+\\\\.dist-info$//')",
       "Bash(python -m pytest *)",
       "Read(//home/dev/.aws-batch/**)",
-      "Bash(timeout 60 aws sts get-caller-identity)"
+      "Bash(timeout 60 aws sts get-caller-identity)",
+      "Bash(ls *)"
     ]
   }
 }

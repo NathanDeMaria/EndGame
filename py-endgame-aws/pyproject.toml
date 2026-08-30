@@ -15,6 +15,11 @@ aiobotocore = "^3.9.0"
 endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "f0be488a26c9bcf60a21ba00146581779485e852", subdirectory = "py-endgame"}
 # endgame = {path = "../py-endgame", develop = true}
 dataclasses-json = ">=0.5.7,<1.0"
+# The processed play-by-play layer: the parquet writer, the dataset reader
+# that turns a game_id filter into byte ranges, and its own S3 filesystem.
+# No pandas -- the schema in `pbp_transform` is a pyarrow one, because most
+# of these columns are nullable ints and pandas casts those to float64.
+pyarrow = "^25.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"
