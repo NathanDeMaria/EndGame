@@ -115,13 +115,14 @@ def test_yardline_is_null_without_a_possession_team() -> None:
 
 def test_yardline_past_the_goal_line_clamps_to_it() -> None:
     """
-    ESPN sends a negative `yardsToEndzone` on the odd scoring play -- a
-    receiver caught at the 12 and credited with 29 yards -- which is its way
-    of saying the ball carried past the goal line. The field stops there.
+    `yardsToEndzone` is noisy enough to leave the field occasionally --
+    five plays in the 12,762 of NCAAFB 2026 week 2, from -30 to 130. The
+    field stops at the goal line either way.
 
-    Found in production: one play in the 12,762 of NCAAFB 2026 week 2, and
-    before the clamp it overflowed the int8 the column is stored in and
-    failed the whole week.
+    The -30 is the one that failed in production: it normalized to 130,
+    overflowed the int8 the column is stored in, and took the whole week
+    with it. The other four fit in an int8 and would have been stored as
+    silently wrong field positions.
     """
     past_the_line = {"yardsToEndzone": -30, "team": {"id": "22"}}
     assert normalize_yardline(past_the_line) == 100
