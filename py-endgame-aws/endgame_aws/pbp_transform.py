@@ -183,7 +183,7 @@ def iter_game_rows(
                 "defense_team_id": _defense_team_id(play),
                 "down": _as_down(start.get("down")),
                 "distance": _as_int(start.get("distance")),
-                "yardline": normalize_yardline(start),
+                "yardline": normalize_yardline(start, is_start=True),
                 "end_offense_team_id": _as_str(_get(end, "team", "id")),
                 "end_down": _as_down(end.get("down")),
                 "end_distance": _as_int(end.get("distance")),
@@ -201,7 +201,9 @@ def iter_game_rows(
             }
 
 
-def normalize_yardline(side: Mapping[str, Any]) -> int | None:
+def normalize_yardline(
+    side: Mapping[str, Any], *, is_start: bool = False
+) -> int | None:
     """
     A play's field position on one absolute scale: 1 is the offense's own
     1-yard line, 99 is the defense's.
@@ -233,6 +235,20 @@ def normalize_yardline(side: Mapping[str, Any]) -> int | None:
         return None
     to_endzone = _as_int(side.get("yardsToEndzone"))
     if to_endzone is None:
+        return None
+    if is_start and to_endzone == 0:
+        # Unpopulated, not "on the goal line". A play can end at the goal
+        # line -- that's what a touchdown is, and it's 444 of one college
+        # week's plays -- but nothing is ever snapped from it. So a zero
+        # means something different on each side of the play, and only the
+        # start side can conclude the field is missing.
+        #
+        # Two sources of it. ESPN's 2002-2004 seasons zero the field for
+        # every play while `possessionText` still carries the spot, which
+        # would otherwise make every yardline in those seasons a confident
+        # 100. And in every era the non-snap rows -- official timeouts, the
+        # two-minute warning, declined penalties -- carry it too: 360 of the
+        # 2,548 plays in an NFL week, none of them a snap.
         return None
     yardline = 100 - to_endzone
     if not 0 <= yardline <= 100:

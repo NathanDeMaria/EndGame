@@ -145,6 +145,42 @@ def test_a_clamped_yardline_still_fits_its_column() -> None:
     assert row["end_yardline"] == 100
 
 
+def test_a_zero_start_yardline_is_missing_not_the_goal_line() -> None:
+    """
+    Nothing is snapped from the goal line, so a start `yardsToEndzone` of 0
+    means ESPN didn't populate the field -- true of every play in its
+    2002-2004 seasons, and of the non-snap rows (official timeouts, the
+    two-minute warning) in every season since.
+    """
+    assert (
+        normalize_yardline({"yardsToEndzone": 0, "team": {"id": "22"}}, is_start=True)
+        is None
+    )
+
+
+def test_a_zero_end_yardline_is_the_goal_line() -> None:
+    """
+    The other side of the same zero. A play ending with nothing left to the
+    end zone is a touchdown -- 444 of them in one college week -- so this
+    one is a real 100, not a gap.
+    """
+    assert normalize_yardline({"yardsToEndzone": 0, "team": {"id": "22"}}) == 100
+
+
+def test_a_timeout_gets_no_yardline_but_keeps_its_row() -> None:
+    play = _play(type={"id": "21", "text": "Official Timeout"})
+    play["start"] = {
+        "down": 1,
+        "distance": 10,
+        "yardsToEndzone": 0,
+        "team": {"id": "22"},
+    }
+    (row,) = transform_game_to_table([_drive(play)], "g1", "nfl", 2025, 4).to_pylist()
+    assert row["yardline"] is None
+    assert row["play_type"] == "Official Timeout"
+    assert row["down"] == 1
+
+
 def test_a_missing_field_leaves_a_null_not_a_shifted_row() -> None:
     play = _play()
     del play["statYardage"]
