@@ -220,12 +220,14 @@ def normalize_yardline(side: Mapping[str, Any]) -> int | None:
     values for a genuine play, though: a snap on your own goal line, and the
     end of a play that reached the end zone.
 
-    Clamped to that 0-100 range, because ESPN occasionally sends a negative
-    `yardsToEndzone` on a scoring play -- a receiver caught at the 12 and
-    credited with 29 yards ends up at -17, which is its way of saying the
-    ball carried past the goal line. The field stops at the goal line, so
-    that is a 100. Rare enough to log: one play in the 12,762 of an NCAAFB
-    week.
+    Clamped to that 0-100 range, because `yardsToEndzone` is noisy. Measured
+    on NCAAFB 2026 week 2 (12,762 plays), it agrees with ESPN's own
+    `possessionText` on 97% of plays and is self-consistent with
+    `statYardage` on 95%, with the disagreement spread evenly across play
+    types rather than concentrated anywhere. The out-of-range values are the
+    same noise where it crosses from wrong into impossible -- five in that
+    week, from -30 to 130. A yardline outside the field isn't a yardline, so
+    it's pinned to the nearest goal line and logged.
     """
     if _get(side, "team", "id") is None:
         return None
