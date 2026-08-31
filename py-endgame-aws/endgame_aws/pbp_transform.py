@@ -236,12 +236,13 @@ def normalize_yardline(
     to_endzone = _as_int(side.get("yardsToEndzone"))
     if to_endzone is None:
         return None
-    if is_start and to_endzone == 0:
+    if is_start and to_endzone <= 0:
         # Unpopulated, not "on the goal line". A play can end at the goal
         # line -- that's what a touchdown is, and it's 444 of one college
-        # week's plays -- but nothing is ever snapped from it. So a zero
-        # means something different on each side of the play, and only the
-        # start side can conclude the field is missing.
+        # week's plays -- but nothing is ever snapped from it, or from past
+        # it, which is what a negative reading claims. So a zero means
+        # something different on each side of the play, and only the start
+        # side can conclude the field is missing.
         #
         # Two sources of it. ESPN's 2002-2004 seasons zero the field for
         # every play while `possessionText` still carries the spot, which
