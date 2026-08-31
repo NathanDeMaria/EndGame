@@ -219,13 +219,28 @@ def normalize_yardline(side: Mapping[str, Any]) -> int | None:
     and read as "snapped in the opponent's end zone". 0 and 100 are real
     values for a genuine play, though: a snap on your own goal line, and the
     end of a play that reached the end zone.
+
+    Clamped to that 0-100 range, because ESPN occasionally sends a negative
+    `yardsToEndzone` on a scoring play -- a receiver caught at the 12 and
+    credited with 29 yards ends up at -17, which is its way of saying the
+    ball carried past the goal line. The field stops at the goal line, so
+    that is a 100. Rare enough to log: one play in the 12,762 of an NCAAFB
+    week.
     """
     if _get(side, "team", "id") is None:
         return None
     to_endzone = _as_int(side.get("yardsToEndzone"))
     if to_endzone is None:
         return None
-    return 100 - to_endzone
+    yardline = 100 - to_endzone
+    if not 0 <= yardline <= 100:
+        logger.warning(
+            "Clamping a yardline of %d (yardsToEndzone %d) into 0-100",
+            yardline,
+            to_endzone,
+        )
+        return min(max(yardline, 0), 100)
+    return yardline
 
 
 def parse_clock(display: Any) -> int | None:
