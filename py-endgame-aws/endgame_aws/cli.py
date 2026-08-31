@@ -607,6 +607,7 @@ async def process_football_plays(
     """
     _check_football_league(league)
     processed = get_processed_plays_store()
+    written = 0
     async with get_football_plays_store() as raw_store:
         for week_number in _weeks_to_process(week):
             try:
@@ -633,6 +634,12 @@ async def process_football_plays(
                 )
                 continue
             await processed.save_week(table, league, year, week_number)
+            written += 1
+
+    # Said even when it's zero. A season with no play-by-play yet skips every
+    # week quietly, and a scheduled job that logs nothing at all is
+    # indistinguishable from one that died before its first line.
+    logger.info("Wrote %d week(s) of %s %d play-by-play", written, league, year)
 
 
 def _weeks_to_process(week: int | None) -> range:
