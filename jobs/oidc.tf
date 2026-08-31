@@ -229,8 +229,9 @@ data "aws_iam_policy_document" "ci_apply_iam" {
   }
 
   # Batch hands the execution and job roles to the container at submit time,
-  # and EventBridge Scheduler is handed its own role when a schedule is
-  # created, so both need PassRole.
+  # EventBridge Scheduler is handed its own role when a schedule is created,
+  # and a state machine is handed the role it submits jobs with, so all three
+  # need PassRole.
   statement {
     effect  = "Allow"
     actions = ["iam:PassRole"]
