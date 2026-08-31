@@ -97,9 +97,11 @@ module "football" {
   # own time any more.
   schedule_expression = var.schedule_expression
   schedule_timezone   = var.schedule_timezone
-  # Off until the chain has been started by hand and watched all the way
-  # through. Flip to true to hand it to the scheduler.
-  schedule_enabled = false
+  # On. Both chains have been started by hand and watched through: the
+  # dependants wait in PENDING for their dependency rather than for a clock,
+  # `football_plays` skips the games it already has, and
+  # `process_football_plays` writes the week's parquet.
+  schedule_enabled = true
 
   # `process_football_plays` reads parquet through pyarrow's S3FileSystem,
   # which is the AWS SDK for C++ rather than botocore and resolves the
