@@ -11,9 +11,28 @@ authors = []
 python = "^3.12"
 fire = ">=0.4.0,<1.0"
 aiobotocore = "^3.9.0"
-# Git for pushed commits, relative install for local development
-endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "f0be488a26c9bcf60a21ba00146581779485e852", subdirectory = "py-endgame"}
-# endgame = {path = "../py-endgame", develop = true}
+# The sibling package in this repo, by path rather than by git rev.
+#
+# This used to be `{git = ..., rev = "<sha>"}`, which meant a "bump py-endgame"
+# commit here after every py-endgame change -- and the two packages could sit
+# at different commits of the same repo, so a green build here said nothing
+# about the py-endgame beside it. A version range would have removed the
+# bumps, but poetry can't do one over a git dependency: `factory.py` reads
+# only branch/tag/rev off a `git = ` constraint and hardcodes the version to
+# `*`, so `version = "^0.2"` next to it is silently dropped. Ranges need a
+# package index (PyPI, CodeArtifact), which is a lot of auth to wire into CI
+# and the image build for a dependency with exactly one consumer.
+#
+# So: path. One commit is now one consistent state of both packages, and
+# everything that builds this already has py-endgame beside it -- CI checks
+# out the whole repo, and the image build's context is the repo root (see the
+# Makefile and .devcontainer/Dockerfile).
+#
+# py-endgame is still tagged `py-endgame-v<version>` on merge to main (see
+# .github/workflows/tag_release.yml). Nothing here consumes those, but a
+# consumer outside this repo can pin one:
+#   endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", tag = "py-endgame-v0.1.0", subdirectory = "py-endgame"}
+endgame = {path = "../py-endgame", develop = true}
 dataclasses-json = ">=0.5.7,<1.0"
 # The processed play-by-play layer: the parquet writer, the dataset reader
 # that turns a game_id filter into byte ranges, and its own S3 filesystem.

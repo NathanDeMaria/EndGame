@@ -1,5 +1,10 @@
 [tool.poetry]
 name = "endgame"
+# Bumping this and merging to main cuts a `py-endgame-v<version>` tag and a
+# release for it -- see .github/workflows/tag_release.yml. Nothing in this
+# repo pins a version (py-endgame-aws takes this package by path), so the tag
+# is for anything outside it, and for naming a state of the package that isn't
+# a commit sha.
 version = "0.1.0"
 description = ""
 authors = []

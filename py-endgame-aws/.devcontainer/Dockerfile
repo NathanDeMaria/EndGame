@@ -30,10 +30,13 @@ RUN python3 -m venv "$POETRY_HOME" \
 # The recursive one covers the paths poetry actually writes into:
 #   site-packages  installed packages
 #   bin            console scripts (`endgame`, `endgame-aws`)
-#   src            git checkouts. Poetry clones VCS deps -- `endgame` is one --
-#                  into `env.path / "src"`, NOT into the cache dir, so with no
+#   src            git checkouts. Poetry clones VCS deps into
+#                  `env.path / "src"`, NOT into the cache dir, so with no
 #                  virtualenv that resolves to /usr/local/src, and a root-owned
-#                  one fails the install with EPERM.
+#                  one fails the install with EPERM. There are no VCS deps
+#                  left -- `endgame` was the last one and is a path dependency
+#                  now -- but the directory costs nothing and the next one
+#                  added won't fail here.
 #   share          where a wheel's `data` payload lands. Sparse but not empty:
 #                  ipython alone drops a man page into share/man/man1, and the
 #                  install dies with EPERM on it. 48K, so -R costs nothing.
@@ -99,7 +102,7 @@ WORKDIR /home/dev/py-endgame-aws
 COPY --chown=dev:dev py-endgame /home/dev/py-endgame
 COPY --chown=dev:dev py-endgame-aws/poetry.* ./
 COPY --chown=dev:dev py-endgame-aws/pyproject.toml ./
-# `endgame` is sometimes installed as an editable path dependency, so /home/dev/py-endgame
+# `endgame` is installed as an editable path dependency, so /home/dev/py-endgame
 # has to stay in the image: the install is a .pth file pointing at it, not a
 # copy of it. It's a couple hundred KB, and keeping the layer means a runtime
 # image and a devcontainer resolve `endgame` the same way.

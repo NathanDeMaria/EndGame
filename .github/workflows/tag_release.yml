@@ -1,0 +1,109 @@
+name: Tag release
+
+# Cuts a `py-endgame-v<version>` tag whenever the version in that package's
+# pyproject.toml lands on main without a tag already pointing at it. So a
+# release is one line of a normal PR -- bump the version -- and the tag
+# follows the merge, rather than being a thing to remember afterwards.
+#
+# Why tags at all, when the only in-repo consumer (py-endgame-aws) depends on
+# py-endgame by path and never pins a version: a tag is what anything OUTSIDE
+# this repo can pin, and it is a name for a state of the package that isn't a
+# commit sha. Note that poetry can't resolve a *range* over git tags -- a
+# `git = ` dependency takes exactly one of branch/tag/rev and the version
+# constraint beside it is dropped -- so consumers pin one tag exactly:
+#   endgame = {git = "...", tag = "py-endgame-v0.1.0", subdirectory = "py-endgame"}
+#
+# Adding another package is one line in the matrix, as long as its version
+# lives at [tool.poetry] version in <package>/pyproject.toml. py-endgame-aws
+# is deliberately not in it: nothing installs it as a library, it ships as the
+# image `make push` builds, tagged with the commit sha.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "py-endgame/pyproject.toml"
+      - ".github/workflows/tag_release.yml"
+  # For the first run, and for re-cutting a tag someone deleted.
+  workflow_dispatch:
+
+permissions:
+  # Creating a release (and, with it, the tag it names) is a write.
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        package: [py-endgame]
+
+    # Two merges in quick succession would otherwise race to create the same
+    # tag, and the loser dies on a 422. Serialising them is cheaper than
+    # teaching the script to tell that apart from a real failure.
+    concurrency:
+      group: tag-release-${{ matrix.package }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read the version
+        id: version
+        working-directory: ${{ matrix.package }}
+        run: |
+          # tomllib is stdlib on the runner's python (3.11+), so this needs no
+          # install step, and it reads the same key poetry does rather than
+          # grepping for a line that also matches every dependency's version.
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["poetry"]["version"])')
+          # A tag is forever, so refuse anything that isn't a version before
+          # writing one. Trailing pre-release/build parts (1.2.3rc1) are fine.
+          if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::${{ matrix.package }} version '$version' is not semver"
+            exit 1
+          fi
+          echo "tag=${{ matrix.package }}-v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Create the tag and release
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            const { owner, repo } = context.repo;
+
+            // The common case by far: this run was triggered by some other
+            // edit to pyproject.toml (a dependency bump), the version is
+            // unchanged, and there is nothing to do. Not an error -- most
+            // merges are not releases.
+            try {
+              await github.rest.git.getRef({ owner, repo, ref: `tags/${tag}` });
+              core.info(`${tag} already exists; nothing to do.`);
+              await core.summary.addRaw(`\`${tag}\` already exists — no new release.`).write();
+              return;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+            // createRelease creates the tag too when it doesn't exist yet, so
+            // this is one call rather than a createRef and a createRelease
+            // that can fail in between and leave a tag with no release.
+            // The generated notes cover every commit since the previous
+            // release, which in a monorepo means commits to the other
+            // packages as well -- accurate about what shipped alongside it,
+            // if noisier than a per-package changelog would be.
+            const release = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              target_commitish: context.sha,
+              name: tag,
+              generate_release_notes: true,
+            });
+
+            core.info(`Created ${tag} at ${context.sha}`);
+            await core.summary
+              .addRaw(`Released [\`${tag}\`](${release.data.html_url}) at \`${context.sha.slice(0, 7)}\`.`)
+              .write();

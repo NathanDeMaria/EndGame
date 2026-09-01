@@ -527,7 +527,7 @@ optional = false
 python-versions = "^3.10"
 groups = ["main"]
 files = []
-develop = false
+develop = true
 
 [package.dependencies]
 aiofiles = "^25.1.0"
@@ -538,11 +538,8 @@ fire = ">=0.7.0,<1"
 python-dateutil = "^2.8.2"
 
 [package.source]
-type = "git"
-url = "https://github.com/NathanDeMaria/EndGame.git"
-reference = "f0be488a26c9bcf60a21ba00146581779485e852"
-resolved_reference = "f0be488a26c9bcf60a21ba00146581779485e852"
-subdirectory = "py-endgame"
+type = "directory"
+url = "../py-endgame"
 
 [[package]]
 name = "executing"
@@ -2644,4 +2641,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "e635935e9d40d46ea3e1817c7fce66789669e5b9d2dabbaf79a343b684e66934"
+content-hash = "5cc97f7894a7b334b73705dd6d09930716362cd7afaad32dd2ffa6121a9b57fc"
