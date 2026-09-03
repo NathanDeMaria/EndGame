@@ -1,11 +1,11 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from logging import getLogger
 from typing import AsyncIterator
 
 from endgame.async_tools import apply_in_parallel
 from endgame.date import get_end_year
 from endgame.espn_games import get_games, save_seasons
-from endgame.espn_odds import Odds, get_odds
+from endgame.espn_odds import Odds, get_odds_range
 from endgame.season_cache import SeasonCache
 from endgame.types import Game, Season, SeasonType, Week
 from endgame.web import RequestParameters
@@ -148,17 +148,26 @@ async def _get_week(
     return Week(sorted(games, key=lambda g: g.date), week)
 
 
-async def get_current_odds() -> AsyncIterator[Odds]:
-    """
-    Get odds for whatever week ESPN currently considers "this week".
+# Sixteen games a week, so a whole season is one request. Worth spending it
+# in one: the NFL is priced further ahead than anything else here -- 272 of
+# 285 games already had a line in early September, out to the following
+# January -- and this is what reaches them.
+ODDS_CHUNK_DAYS = 180
 
-    Meant to be called periodically during the season, same idea as
-    NCAABB's day-based odds pulling, but NFL scoreboards are organized
-    by week rather than day, and ESPN defaults to the current week when
-    no explicit week/season params are passed.
+
+async def get_nfl_odds(start: date, end: date) -> AsyncIterator[Odds]:
+    """
+    Get the odds on every NFL game between `start` and `end`, inclusive.
+
+    This used to ask for whatever week ESPN called "this week", by sending
+    no dates at all and taking the default. That was a week of visibility
+    into a league that prices its whole season by September, so the opening
+    line on all but the nearest games was never recorded.
     """
     parameters: RequestParameters = dict(lang="en", region="us")
-    async for odd in get_odds(BASE_URL, parameters):
+    async for odd in get_odds_range(
+        BASE_URL, parameters, start=start, end=end, chunk_days=ODDS_CHUNK_DAYS
+    ):
         yield odd
 
 

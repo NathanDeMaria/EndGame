@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from itertools import groupby
 from logging import getLogger
 from typing import AsyncIterator, Dict, Iterator, List
@@ -8,7 +8,7 @@ import aiohttp
 from .async_tools import apply_in_parallel
 from .date import get_end_year
 from .espn_games import get_games, save_seasons
-from .espn_odds import Odds, get_odds
+from .espn_odds import Odds, get_odds_range
 from .season_cache import SeasonCache
 from .types import (
     Game,
@@ -155,15 +155,25 @@ async def get_season(
     return season
 
 
-async def get_current_odds() -> AsyncIterator[Odds]:
+# An FBS Saturday is ~60 games, so a month and a half sits comfortably under
+# the cap even in September. Lines here run months out for the games that
+# sell tickets early -- rivalry week and Army-Navy were priced in
+# September -- which a single-week request never saw.
+ODDS_CHUNK_DAYS = 45
+
+
+async def get_ncaafb_odds(start: date, end: date) -> AsyncIterator[Odds]:
     """
-    Get odds for whatever week ESPN currently considers "this week", FBS only
-    (betting markets don't really cover FCS/D2/D3).
+    Get the odds on every FBS game between `start` and `end`, inclusive.
+
+    FBS only: betting markets don't really cover FCS/D2/D3.
     """
     parameters: RequestParameters = dict(
         lang="en", region="us", groups=NcaaFbGroup.fbs.value
     )
-    async for odd in get_odds(BASE_URL, parameters):
+    async for odd in get_odds_range(
+        BASE_URL, parameters, start=start, end=end, chunk_days=ODDS_CHUNK_DAYS
+    ):
         yield odd
 
 

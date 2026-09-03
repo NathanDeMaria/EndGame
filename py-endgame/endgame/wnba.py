@@ -6,7 +6,7 @@ from datetime import date
 from typing import AsyncIterator, List, Optional
 
 from .constants import ESPN_SPORTS_API_BASE
-from .daily import DailyLeague, get_daily_odds, get_season, get_seasons
+from .daily import DailyLeague, get_league_odds, get_season, get_seasons
 from .daily import update as update_daily
 from .espn_odds import Odds
 from .season_cache import SeasonCache
@@ -67,6 +67,9 @@ WNBA = DailyLeague(
     # league's history that no rule can tell from league play, and without
     # it "EAST" and "WEST" end up rated off one game apiece.
     untagged_exhibitions=frozenset({"220715098"}),
+    # A dozen teams playing a few games a day -- a long odds range here is
+    # nowhere near the cap.
+    odds_chunk_days=60,
 )
 
 
@@ -102,9 +105,9 @@ async def get_wnba_season(
     )
 
 
-async def get_wnba_odds(day: date) -> AsyncIterator[Odds]:
+async def get_wnba_odds(start: date, end: date) -> AsyncIterator[Odds]:
     """
-    Get the odds on a day's WNBA games
+    Get the odds on every WNBA game between `start` and `end`, inclusive.
     """
-    async for odd in get_daily_odds(WNBA, day):
+    async for odd in get_league_odds(WNBA, start, end):
         yield odd

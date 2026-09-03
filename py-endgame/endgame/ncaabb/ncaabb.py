@@ -7,9 +7,9 @@ import aiohttp
 
 from ..async_tools import apply_in_parallel
 from ..constants import DEFAULT_LOOKAHEAD_DAYS, ESPN_SPORTS_API_BASE
-from ..date import date_range, get_end_year, is_between_dates
+from ..date import clamp_to_window, date_range, get_end_year
 from ..espn_games import get_games, save_seasons
-from ..espn_odds import Odds, get_odds
+from ..espn_odds import Odds, get_odds_range
 from ..season_cache import SeasonCache
 from ..types import Game, Season, Week, supersedes
 from ..web import RequestParameters
@@ -263,32 +263,73 @@ async def get_ncaabb_games(
     return [g for g in games if not g.completed or g.home_score > 0 or g.away_score > 0]
 
 
+# The busiest league here by a distance: ~50 D1 games on a January
+# Saturday, and a measured 670 events over a fortnight. Two weeks is the
+# most that reliably fits in one response, which is what sets the default
+# every other league then raises.
+ODDS_CHUNK_DAYS = 14
+
+
+class _OddsParams(NamedTuple):
+    """
+    One gender and competition, over the stretch of days it could have been
+    played on.
+    """
+
+    start: date
+    end: date
+    gender: NcaabbGender
+    group: NcaabbGroup
+
+
 async def _get_ncaabb_odds(
-    game_date: date, gender: NcaabbGender, group: NcaabbGroup
+    start: date, end: date, gender: NcaabbGender, group: NcaabbGroup
 ) -> AsyncIterator[Odds]:
-    logger.info("Getting NCAABB %s %s %s", gender.value, game_date, group.name)
+    logger.info(
+        "Getting NCAABB %s odds %s..%s %s", gender.value, start, end, group.name
+    )
     parameters: RequestParameters = dict(
         lang="en",
         region="us",
         calendartype="blacklist",
-        limit=300,
-        dates=game_date.strftime("%Y%m%d"),
         groups=group.value,
     )
-    odds = get_odds(NCAABB_SCOREBOARD.format(gender.name), parameters)
+    odds = get_odds_range(
+        NCAABB_SCOREBOARD.format(gender.name),
+        parameters,
+        start=start,
+        end=end,
+        chunk_days=ODDS_CHUNK_DAYS,
+    )
     async for odd in odds:
         yield odd
 
 
-async def get_ncaabb_spreads(day: date) -> AsyncIterator[Odds]:
-    day_params = []
-    for gender in NcaabbGender:
-        if is_between_dates(day, REGULAR_SEASON_START, REGULAR_SEASON_END):
-            day_params.append(DayParams(day, gender, NcaabbGroup.d1))
-        if is_between_dates(day, POST_SEASON_START, SEASON_END):
-            for group in POSTSEASON_GROUPS:
-                day_params.append(DayParams(day, gender, group))
+def _odds_params(start: date, end: date) -> List[_OddsParams]:
+    """
+    The requests that cover `start`..`end`, one per gender and competition.
 
-    for params in day_params:
+    Each is narrowed to its own window rather than given the whole range:
+    the tournaments only run in March and April, so asking them about
+    December would be four wasted requests per gender per chunk. A range
+    that misses a window entirely drops it.
+    """
+    params = []
+    for gender in NcaabbGender:
+        regular = clamp_to_window(start, end, REGULAR_SEASON_START, REGULAR_SEASON_END)
+        if regular:
+            params.append(_OddsParams(*regular, gender, NcaabbGroup.d1))
+        postseason = clamp_to_window(start, end, POST_SEASON_START, SEASON_END)
+        if postseason:
+            for group in POSTSEASON_GROUPS:
+                params.append(_OddsParams(*postseason, gender, group))
+    return params
+
+
+async def get_ncaabb_spreads(start: date, end: date) -> AsyncIterator[Odds]:
+    """
+    Get the odds on every NCAABB game between `start` and `end`, inclusive.
+    """
+    for params in _odds_params(start, end):
         async for odd in _get_ncaabb_odds(*params):
             yield odd

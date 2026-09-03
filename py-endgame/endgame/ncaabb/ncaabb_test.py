@@ -8,7 +8,7 @@ from multidict import CIMultiDict, CIMultiDictProxy
 from yarl import URL
 
 from ..constants import DEFAULT_LOOKAHEAD_DAYS
-from ..date import date_range
+from ..date import date_range, is_between_dates
 from ..season_cache import SeasonCache
 from ..types import group_games_into_weeks
 from . import ncaabb as ncaabb_module
@@ -24,9 +24,9 @@ from .ncaabb import (
     NcaabbGroup,
     Season,
     Week,
+    _odds_params,
     get_ncaabb_games,
     get_ncaabb_season,
-    is_between_dates,
     merge_seasons,
 )
 
@@ -644,3 +644,50 @@ class TestMergeSeasonsKeepsResults:
 
         [game] = [g for w in merged.weeks for g in w.games]
         assert game == moved
+
+
+def _groups_asked(start: date, end: date) -> set:
+    return {params.group for params in _odds_params(start, end)}
+
+
+def test_odds_params__december_asks_d1_only() -> None:
+    """
+    The tournaments don't run until March, so a December range has no
+    business asking them.
+    """
+    assert _groups_asked(date(2026, 12, 1), date(2026, 12, 15)) == {NcaabbGroup.d1}
+
+
+def test_odds_params__march_asks_the_tournaments_too() -> None:
+    assert _groups_asked(date(2027, 3, 10), date(2027, 3, 24)) == {
+        NcaabbGroup.d1
+    } | set(POSTSEASON_GROUPS)
+
+
+def test_odds_params__the_off_season_asks_nothing() -> None:
+    assert _odds_params(date(2026, 7, 1), date(2026, 8, 1)) == []
+
+
+def test_odds_params__narrows_each_competition_to_its_own_window() -> None:
+    """
+    A rest-of-season range covers days no tournament could be played on.
+    Handing the whole range to every group would spend four requests a
+    gender per chunk on months that can't have a game in them.
+    """
+    params = {
+        (p.gender, p.group): (p.start, p.end)
+        for p in _odds_params(date(2026, 12, 1), date(2027, 4, 30))
+    }
+
+    for gender in NcaabbGender:
+        # D1 runs to the end of the regular season, not to the end of April
+        assert params[(gender, NcaabbGroup.d1)] == (date(2026, 12, 1), date(2027, 4, 1))
+        for group in POSTSEASON_GROUPS:
+            assert params[(gender, group)] == (date(2027, 3, 1), date(2027, 4, 30))
+
+
+def test_odds_params__covers_both_genders() -> None:
+    genders = {
+        params.gender for params in _odds_params(date(2027, 1, 5), date(2027, 1, 19))
+    }
+    assert genders == set(NcaabbGender)
