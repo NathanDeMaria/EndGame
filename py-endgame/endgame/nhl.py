@@ -6,7 +6,7 @@ from datetime import date
 from typing import AsyncIterator, List, Optional
 
 from .constants import ESPN_SPORTS_API_BASE
-from .daily import DailyLeague, get_daily_odds, get_season, get_seasons
+from .daily import DailyLeague, get_league_odds, get_season, get_seasons
 from .daily import update as update_daily
 from .espn_odds import Odds
 from .season_cache import SeasonCache
@@ -96,6 +96,9 @@ NHL = DailyLeague(
     drop_scoreless=False,
     rename_team=_rename_team,
     odd_seasons=ODD_SEASONS,
+    # ~7 games a day at its busiest, so two months of odds still comes
+    # back well inside one response.
+    odds_chunk_days=60,
 )
 
 
@@ -131,9 +134,9 @@ async def get_nhl_season(
     )
 
 
-async def get_nhl_odds(day: date) -> AsyncIterator[Odds]:
+async def get_nhl_odds(start: date, end: date) -> AsyncIterator[Odds]:
     """
-    Get the odds on a day's NHL games
+    Get the odds on every NHL game between `start` and `end`, inclusive.
     """
-    async for odd in get_daily_odds(NHL, day):
+    async for odd in get_league_odds(NHL, start, end):
         yield odd

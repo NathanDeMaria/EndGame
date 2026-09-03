@@ -32,7 +32,7 @@ from .async_tools import apply_in_parallel
 from .constants import DEFAULT_LOOKAHEAD_DAYS
 from .date import date_range, is_between_dates
 from .espn_games import EventFilter, get_games, save_seasons
-from .espn_odds import Odds, get_odds
+from .espn_odds import DEFAULT_ODDS_CHUNK_DAYS, Odds, get_odds_range
 from .season_cache import SeasonCache
 from .types import Game, Season, SeasonStart, SeasonType, Week, supersedes
 from .web import RequestParameters
@@ -101,6 +101,10 @@ class DailyLeague:
     # `constants.DEFAULT_LOOKAHEAD_DAYS`. Ignored entirely by a results-only
     # pull, which never looks past today.
     lookahead_days: int = DEFAULT_LOOKAHEAD_DAYS
+    # How many days of odds one request asks for. The default is sized for
+    # NCAABB, which plays far more games a day than either league here, so
+    # both raise it and spend fewer requests on a long horizon.
+    odds_chunk_days: int = DEFAULT_ODDS_CHUNK_DAYS
 
     def start_date(self, year: int) -> date:
         """
@@ -311,6 +315,14 @@ def _day_parameters(day: date) -> RequestParameters:
     )
 
 
+def _odds_parameters() -> Dict:
+    """
+    Everything an odds request sends except the days and the cap, which
+    `get_odds_range` fills in as it splits the range up.
+    """
+    return dict(lang="en", region="us", calendartype="blacklist")
+
+
 def league_play_filter(league: DailyLeague) -> EventFilter:
     """
     An `EventFilter` keeping only the games where `league` plays itself.
@@ -400,16 +412,36 @@ async def get_daily_games(
     return games
 
 
-async def get_daily_odds(league: DailyLeague, day: date) -> AsyncIterator[Odds]:
+async def get_league_odds(
+    league: DailyLeague, start: date, end: date
+) -> AsyncIterator[Odds]:
     """
-    Get the odds on a day's games, or nothing at all if the league isn't
-    playing then.
+    Get the odds on every game between `start` and `end`, both inclusive.
+
+    Nothing at all if the league isn't playing in any of it. That's checked
+    across the whole range rather than a day at a time because the range is
+    the request: one day of a fortnight falling in the season is enough to
+    make the fortnight worth asking for, and ESPN returns nothing for the
+    days either side.
     """
-    if not league.is_in_season(day):
-        logger.info("%s isn't in season on %s, skipping odds", league.name, day)
+    if not any(
+        league.is_in_season(day) for day in date_range(start, end + timedelta(days=1))
+    ):
+        logger.info(
+            "%s isn't in season between %s and %s, skipping odds",
+            league.name,
+            start,
+            end,
+        )
         return
-    logger.info("Getting %s odds for %s", league.name, day)
-    async for odd in get_odds(league.scoreboard_url, _day_parameters(day)):
+    logger.info("Getting %s odds for %s..%s", league.name, start, end)
+    async for odd in get_odds_range(
+        league.scoreboard_url,
+        _odds_parameters(),
+        start=start,
+        end=end,
+        chunk_days=league.odds_chunk_days,
+    ):
         yield odd
 
 

@@ -11,7 +11,7 @@ from . import daily as daily_module
 from .daily import (
     DailyLeague,
     get_daily_games,
-    get_daily_odds,
+    get_league_odds,
     get_season,
     league_play_filter,
 )
@@ -540,29 +540,70 @@ async def test_franchises_come_back_under_their_current_name(
     assert games[0].away == "Someone Else"
 
 
-def _patch_get_odds(odds: List[dict]):
-    async def fake_get_odds(url, parameters):
+def _patch_get_odds(odds: List[dict], asked: Optional[List[tuple]] = None):
+    async def fake_get_odds_range(url, parameters, *, start, end, chunk_days):
+        if asked is not None:
+            asked.append((start, end, chunk_days))
         for odd in odds:
             yield odd
 
-    return patch.object(daily_module, "get_odds", fake_get_odds)
+    return patch.object(daily_module, "get_odds_range", fake_get_odds_range)
 
 
-async def test_get_daily_odds__skips_days_out_of_season() -> None:
+async def test_get_league_odds__skips_a_range_out_of_season() -> None:
     """No point asking ESPN for WNBA odds in February."""
     with _patch_get_odds([{"competition_id": "1", "odds": {}}]):
-        odds = [o async for o in get_daily_odds(WNBA, date(2026, 2, 1))]
+        odds = [
+            o async for o in get_league_odds(WNBA, date(2026, 2, 1), date(2026, 2, 14))
+        ]
 
     assert odds == []
 
 
-async def test_get_daily_odds__returns_odds_in_season() -> None:
+async def test_get_league_odds__returns_odds_in_season() -> None:
     expected = [{"competition_id": "1", "odds": {}}]
 
     with _patch_get_odds(expected):
-        odds = [o async for o in get_daily_odds(WNBA, date(2026, 7, 1))]
+        odds = [
+            o async for o in get_league_odds(WNBA, date(2026, 7, 1), date(2026, 7, 14))
+        ]
 
     assert odds == expected
+
+
+async def test_get_league_odds__asks_when_only_part_of_the_range_is_in_season() -> None:
+    """
+    The range is the request, so one day of it being in season is enough to
+    make the whole thing worth asking for. ESPN just returns nothing for the
+    days either side, where narrowing to the in-season part would cost an
+    extra request for no more data.
+
+    The WNBA starts on May 1st, so this straddles the opening.
+    """
+    expected = [{"competition_id": "1", "odds": {}}]
+    asked: List[tuple] = []
+
+    with _patch_get_odds(expected, asked):
+        odds = [
+            o async for o in get_league_odds(WNBA, date(2026, 4, 25), date(2026, 5, 5))
+        ]
+
+    assert odds == expected
+    assert asked == [(date(2026, 4, 25), date(2026, 5, 5), WNBA.odds_chunk_days)]
+
+
+async def test_get_league_odds__passes_the_league_its_own_chunk_size() -> None:
+    """
+    Both leagues here play few enough games a day to ask for a long stretch
+    at once, rather than the default sized for NCAABB.
+    """
+    asked: List[tuple] = []
+
+    with _patch_get_odds([], asked):
+        [o async for o in get_league_odds(NHL, date(2026, 11, 1), date(2027, 1, 1))]
+
+    assert asked == [(date(2026, 11, 1), date(2027, 1, 1), NHL.odds_chunk_days)]
+    assert NHL.odds_chunk_days > 14
 
 
 def test_season_start_is_before_the_earliest_game_of_a_season() -> None:
