@@ -3,7 +3,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import wraps
 from inspect import iscoroutinefunction
 from typing import AsyncIterator, Awaitable, Callable
@@ -22,21 +22,22 @@ from endgame.ncaabb.ncaabb import (
     get_ncaabb_season,
     get_ncaabb_spreads,
 )
+from endgame.ncaabb.ncaabb import SEASON_END as NCAABB_SEASON_END
 from endgame.ncaabb.possession_side import PossessionSide
-from endgame.ncaafb import FIRST_WEEK_ZERO_SEASON
+from endgame.ncaafb import FIRST_WEEK_ZERO_SEASON, get_ncaafb_odds
 from endgame.ncaafb import SEASON_END as NCAAFB_SEASON_END
-from endgame.ncaafb import get_current_odds as get_ncaafb_current_odds
 from endgame.ncaafb import get_season as get_ncaafb_season
-from endgame.nfl.games import get_current_odds as get_nfl_current_odds
+from endgame.nfl.games import SEASON_END as NFL_SEASON_END
+from endgame.nfl.games import get_nfl_odds
 from endgame.nfl.games import get_season as get_nfl_season
-from endgame.nhl import get_nhl_odds, get_nhl_season
+from endgame.nhl import NHL, get_nhl_odds, get_nhl_season
 from endgame.types import (
     Game,
     group_games_into_weeks,
     iter_weeks,
     merge_weekly_seasons,
 )
-from endgame.wnba import get_wnba_odds, get_wnba_season
+from endgame.wnba import WNBA, get_wnba_odds, get_wnba_season
 from fire import Fire
 
 from . import (
@@ -412,35 +413,112 @@ def _parse_date(date_str: str | None) -> date:
 
 @dataclass
 class _OddsLeague:
-    # `day` is only meaningful for the leagues scheduled by day rather than
-    # by week (ncaabb, nhl, wnba); nfl/ncaafb just return whatever ESPN
-    # calls "this week".
-    get_odds: Callable[[date], AsyncIterator[EspnOdds]]
+    # Every league now takes the same (start, end), inclusive. ESPN's
+    # scoreboard reads a range of days as readily as a single one, so how
+    # far ahead a pull looks is a choice rather than a property of how the
+    # league is scheduled -- which is what makes the horizons below
+    # affordable.
+    get_odds: Callable[[date, date], AsyncIterator[EspnOdds]]
+    # The (month, day) the season is over by, for the `season` horizon.
+    season_end: tuple[int, int]
 
 
 _ODDS_LEAGUES: dict[str, _OddsLeague] = {
-    "ncaabb": _OddsLeague(get_odds=get_ncaabb_spreads),
-    "nfl": _OddsLeague(get_odds=lambda _day: get_nfl_current_odds()),
-    "ncaafb": _OddsLeague(get_odds=lambda _day: get_ncaafb_current_odds()),
-    "nhl": _OddsLeague(get_odds=get_nhl_odds),
-    "wnba": _OddsLeague(get_odds=get_wnba_odds),
+    "ncaabb": _OddsLeague(get_ncaabb_spreads, NCAABB_SEASON_END),
+    "nfl": _OddsLeague(get_nfl_odds, NFL_SEASON_END),
+    "ncaafb": _OddsLeague(get_ncaafb_odds, NCAAFB_SEASON_END),
+    "nhl": _OddsLeague(get_nhl_odds, NHL.season_end),
+    "wnba": _OddsLeague(get_wnba_odds, WNBA.season_end),
+}
+
+# How far the `near` horizon reaches. Two weeks is where the lines that
+# exist are: most of a fortnight out is priced in every league here, and
+# past it only the marquee games are, which the `season` horizon picks up
+# once a week anyway.
+_NEAR_HORIZON_DAYS = 14
+
+
+# The horizons, and what each is for.
+#
+# They deliberately overlap -- `today` is inside `near` is inside
+# `season` -- because they're answering different questions. `today` runs
+# hourly and is the only one that sees a line move in the hours before a
+# game. `near` runs once a day, cheaply, so a game gets a price the day it
+# opens rather than the day it's played. `season` runs weekly and is what
+# catches a line posted months out, which is most of the NFL's season by
+# September and the games that sell out early in college football.
+#
+# Each is one request per chunk, not one per day, so `season` costs single
+# figures a week rather than a request per day per run.
+def _next_occurrence(month_day: tuple[int, int], today: date) -> date:
+    """
+    The next time a (month, day) comes round, today included.
+    """
+    this_year = date(today.year, *month_day)
+    return this_year if this_year >= today else date(today.year + 1, *month_day)
+
+
+# Each horizon is the last day it reaches. They all start from the day the
+# pull runs, so that's the only thing that differs between them.
+_ODDS_HORIZONS: dict[str, Callable[[_OddsLeague, date], date]] = {
+    "today": lambda _league, day: day,
+    "near": lambda _league, day: day + timedelta(days=_NEAR_HORIZON_DAYS),
+    "season": lambda league, day: _next_occurrence(league.season_end, day),
 }
 
 
-async def odds(league: str, day: str | None = None, time: str | None = None) -> None:
+def _odds_window(league: _OddsLeague, horizon: str, day: date) -> tuple[date, date]:
+    """
+    The days a pull covers, both inclusive.
+    """
+    if horizon not in _ODDS_HORIZONS:
+        raise ValueError(
+            f"Unknown odds horizon {horizon!r}, "
+            f"expected one of {sorted(_ODDS_HORIZONS)}"
+        )
+    return day, _ODDS_HORIZONS[horizon](league, day)
+
+
+async def odds(
+    league: str,
+    horizon: str = "today",
+    day: str | None = None,
+    time: str | None = None,
+) -> None:
+    """
+    Snapshot a league's odds, from `day` out to whatever `horizon` reaches.
+    """
+    if league not in _ODDS_LEAGUES:
+        raise ValueError(
+            f"Unknown odds league {league!r}, expected one of {sorted(_ODDS_LEAGUES)}"
+        )
     now = datetime.now(tz=ZoneInfo("America/Chicago"))
     parsed_date = _parse_date(day)
     parsed_time = time if time is not None else now.strftime("%H-%M")
-    league_odds = [o async for o in _ODDS_LEAGUES[league].get_odds(parsed_date)]
+    odds_league = _ODDS_LEAGUES[league]
+    start, end = _odds_window(odds_league, horizon, parsed_date)
+    league_odds = [o async for o in odds_league.get_odds(start, end)]
+    # The horizon is in the key because the three of them run on their own
+    # schedules and would otherwise collide: the daily `near` pull and an
+    # hourly `today` one that land in the same minute would write the same
+    # object, and one snapshot would quietly replace the other.
+    #
+    # The date is when the odds were *read*, not when the games are played.
+    # It always was, but it used to amount to the same thing -- a snapshot
+    # only ever held that day's games. Now that one can reach months ahead,
+    # which game a price belongs to is on the record itself.
     await save_data_to_s3(
         _CONFIG.bucket,
-        f"odds/{league}/{parsed_date}/{parsed_time}.json",
+        f"odds/{league}/{parsed_date}/{parsed_time}-{horizon}.json",
         json.dumps(league_odds).encode(),
     )
     logger.info(
-        "Saved %d odds for %s on %s at %s",
+        "Saved %d odds for %s (%s horizon, %s..%s) read on %s at %s",
         len(league_odds),
         league,
+        horizon,
+        start,
+        end,
         parsed_date,
         parsed_time,
     )

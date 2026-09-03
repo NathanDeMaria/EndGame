@@ -26,6 +26,42 @@ locals {
 
   odds_leagues = ["ncaabb", "nfl", "ncaafb", "nhl", "wnba"]
 
+  # How far ahead each odds pull looks, and how often it runs.
+  #
+  # ESPN's scoreboard takes a range of days, so a horizon costs one request
+  # per chunk rather than one per day -- which is what makes asking about
+  # the whole season affordable at all. The three overlap on purpose,
+  # because they answer different questions:
+  #
+  #   today   the only one that sees a line move in the hours before a
+  #           game, so it's the one that runs hourly
+  #   near    a fortnight out, once a day: a game gets a price the day it
+  #           opens rather than the day it's played
+  #   season  once a week, for lines posted months ahead -- most of the
+  #           NFL's season is priced by September, and college football
+  #           prices rivalry week and the bowls long before they're near
+  #
+  # `today` keeps the hours the single odds job has always run. The other
+  # two go early, before it starts, so a day's first hourly snapshot has
+  # the wider pulls behind it rather than racing them.
+  odds_horizons = {
+    today  = "cron(0 10-22 * * ? *)"
+    near   = "cron(30 9 * * ? *)"
+    season = "cron(0 8 ? * MON *)"
+  }
+
+  # One job per league per horizon. The horizon is in the job name (and in
+  # the S3 key the job writes) because the three run on their own
+  # schedules: two that landed in the same minute would otherwise write the
+  # same object and one would quietly replace the other.
+  odds_jobs = {
+    for pair in setproduct(local.odds_leagues, keys(local.odds_horizons)) :
+    "${pair[0]}-${pair[1]}" => {
+      league  = pair[0]
+      horizon = pair[1]
+    }
+  }
+
   # The football play-by-play pipeline, which is three commands that have to
   # run in order:
   #
@@ -117,16 +153,16 @@ module "football" {
 
 module "odds" {
   source   = "./modules/scheduled_job"
-  for_each = toset(local.odds_leagues)
+  for_each = local.odds_jobs
 
   job_name            = "odds-${each.key}"
   image               = "${var.ecr_repository_url}:${var.image_tag}"
-  command             = ["odds", each.key]
+  command             = ["odds", each.value.league, "--horizon", each.value.horizon]
   execution_role_arn  = aws_iam_role.batch_execution_role.arn
   job_role_arn        = aws_iam_role.batch_job_role.arn
   scheduler_role_arn  = aws_iam_role.scheduler_role.arn
   job_queue_arn       = local.job_queue_arn
-  schedule_expression = "cron(0 10-22 * * ? *)"
+  schedule_expression = local.odds_horizons[each.value.horizon]
   schedule_timezone   = var.schedule_timezone
 }
 
