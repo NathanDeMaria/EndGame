@@ -18,12 +18,18 @@ locals {
   # football chain below, and a second schedule for it would run it twice a
   # day.
   games_jobs = {
-    mens   = ["box_scores", "mens", var.season_year]
-    womens = ["box_scores", "womens", var.season_year]
-    nhl    = ["games", "nhl", var.season_year]
-    wnba   = ["games", "wnba", var.wnba_season_year]
+    mens    = ["box_scores", "mens", var.season_year]
+    womens  = ["box_scores", "womens", var.season_year]
+    nhl     = ["games", "nhl", var.season_year]
+    wnba    = ["games", "wnba", var.wnba_season_year]
+    ncaawvb = ["games", "ncaawvb", var.season_year]
   }
 
+  # ncaawvb isn't here: ESPN carries no odds for college volleyball at all,
+  # and `odds_jobs` below turns every league in this list into one job per
+  # horizon -- so adding it would buy three schedules, one of them hourly,
+  # writing nothing but empty objects. See `_ODDS_LEAGUES` in
+  # py-endgame-aws.
   odds_leagues = ["ncaabb", "nfl", "ncaafb", "nhl", "wnba"]
 
   # How far ahead each odds pull looks, and how often it runs.

@@ -27,6 +27,7 @@ from endgame.ncaabb.possession_side import PossessionSide
 from endgame.ncaafb import FIRST_WEEK_ZERO_SEASON, get_ncaafb_odds
 from endgame.ncaafb import SEASON_END as NCAAFB_SEASON_END
 from endgame.ncaafb import get_season as get_ncaafb_season
+from endgame.ncaawvb import get_ncaawvb_season
 from endgame.nfl.games import SEASON_END as NFL_SEASON_END
 from endgame.nfl.games import get_nfl_odds
 from endgame.nfl.games import get_season as get_nfl_season
@@ -178,10 +179,10 @@ async def box_scores(gender_name: str, year: int):
 @dataclass
 class _GamesLeague:
     # `season_so_far` is only useful for leagues pulled a day at a time
-    # (nhl, wnba): the job starts with an empty web cache, so handing it
-    # what's already in S3 means a run picks up from the last day it has
-    # instead of walking the whole season again. nfl/ncaafb are pulled a
-    # week at a time and don't take one.
+    # (nhl, wnba, ncaawvb): the job starts with an empty web cache, so
+    # handing it what's already in S3 means a run picks up from the last day
+    # it has instead of walking the whole season again. nfl/ncaafb are
+    # pulled a week at a time and don't take one.
     get_season: Callable[[int, Season | None], Awaitable[Season]]
     incremental: bool = False
 
@@ -196,9 +197,9 @@ class _GamesLeague:
 #
 # What that costs differs by how a league is fetched. nfl and ncaafb are
 # pulled a week at a time and get their schedule for nothing -- the request
-# for a week comes back with its fixtures either way. nhl and wnba are
-# walked a day at a time, so they pay one request per future day, bounded by
-# `DailyLeague.lookahead_days`.
+# for a week comes back with its fixtures either way. nhl, wnba and ncaawvb
+# are walked a day at a time, so they pay one request per future day,
+# bounded by `DailyLeague.lookahead_days`.
 _GAMES_LEAGUES: dict[str, _GamesLeague] = {
     "nfl": _GamesLeague(
         get_season=lambda year, _so_far: get_nfl_season(year, include_unplayed=True)
@@ -214,6 +215,12 @@ _GAMES_LEAGUES: dict[str, _GamesLeague] = {
     ),
     "wnba": _GamesLeague(
         get_season=lambda year, so_far: get_wnba_season(
+            year, so_far, include_unplayed=True
+        ),
+        incremental=True,
+    ),
+    "ncaawvb": _GamesLeague(
+        get_season=lambda year, so_far: get_ncaawvb_season(
             year, so_far, include_unplayed=True
         ),
         incremental=True,
@@ -423,6 +430,12 @@ class _OddsLeague:
     season_end: tuple[int, int]
 
 
+# ncaawvb isn't here: ESPN carries no odds for college volleyball at all --
+# not one of the ~12,700 matches it has served since 2011 comes back with an
+# odds block. That costs more than it looks like from this table: `jobs`
+# fans every league in here out into one job per horizon, and the `today`
+# one is hourly, so a league with no odds is ~15 empty objects a day rather
+# than one.
 _ODDS_LEAGUES: dict[str, _OddsLeague] = {
     "ncaabb": _OddsLeague(get_ncaabb_spreads, NCAABB_SEASON_END),
     "nfl": _OddsLeague(get_nfl_odds, NFL_SEASON_END),
