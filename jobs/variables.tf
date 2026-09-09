@@ -17,9 +17,13 @@ variable "image_tag" {
 variable "season_year" {
   description = <<-EOT
     The season to pull, for the leagues whose season is named for the year it
-    starts in: ncaabb, nfl, ncaafb and nhl. Bump it once a year, around
-    August, when football and hockey start up and the previous ncaabb season
-    is long finished.
+    starts in: ncaabb, nfl, ncaafb, nhl and ncaawvb. Bump it once a year,
+    around August, when football, hockey and volleyball start up and the
+    previous ncaabb season is long finished.
+
+    ncaawvb's season is over inside the year it starts -- August to a
+    championship before Christmas -- but it's named for that year and starts
+    in August, so it rolls over with this one rather than needing its own.
 
     This used to be derived from `timestamp()`, which meant the deployed year
     depended on the day of the apply rather than on anything in git: the same

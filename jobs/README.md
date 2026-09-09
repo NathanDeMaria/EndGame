@@ -75,6 +75,6 @@ passes the same values as `TF_VAR_*` instead.
 
 `season_year` and `wnba_season_year` in `variables.tf` are committed rather
 than derived from `timestamp()`, so the same commit plans the same way in July
-and in August. Bump `season_year` around August, when football and hockey start
-and the previous ncaabb season is long finished; `wnba_season_year` rolls over
-in the spring.
+and in August. Bump `season_year` around August, when football, hockey and
+volleyball start and the previous ncaabb season is long finished;
+`wnba_season_year` rolls over in the spring.
