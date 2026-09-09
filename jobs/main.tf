@@ -25,7 +25,7 @@ locals {
     ncaawvb = ["games", "ncaawvb", var.season_year]
   }
 
-  # ncaawvb isn't here: ESPN carries no odds for college volleyball at all,
+  # ncaawvb isn't here: ESPN carries no odds for college volleyball as of Sept 2026
   # and `odds_jobs` below turns every league in this list into one job per
   # horizon -- so adding it would buy three schedules, one of them hourly,
   # writing nothing but empty objects. See `_ODDS_LEAGUES` in
