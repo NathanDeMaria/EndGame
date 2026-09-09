@@ -10,6 +10,7 @@ from .ncaabb import (
     update as update_ncaabb,
 )
 from .ncaafb import update as update_ncaafb
+from .ncaawvb import update as update_ncaawvb
 from .nfl import save_coaches, save_spreads, update
 from .nhl import update as update_nhl
 from .wnba import update as update_wnba
@@ -34,6 +35,9 @@ class Main:
             return
         elif league == "wnba":
             asyncio.run(update_wnba())
+            return
+        elif league == "ncaawvb":
+            asyncio.run(update_ncaawvb())
             return
         elif league == "ncaawbb":
             asyncio.run(update_ncaabb(NcaabbGender.womens))
