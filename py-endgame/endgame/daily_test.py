@@ -16,6 +16,7 @@ from .daily import (
     league_play_filter,
 )
 from .date import date_range
+from .ncaawvb import NCAAWVB
 from .nhl import NHL
 from .season_cache import SeasonCache
 from .types import Game, Season, Week
@@ -24,6 +25,7 @@ from .wnba import WNBA
 # Seasons that are long over, so nothing gets clamped to today's date
 _FINISHED_NHL_YEAR = 2015  # an ordinary season, no COVID dates
 _FINISHED_WNBA_YEAR = 2015
+_FINISHED_NCAAWVB_YEAR = 2015  # before COVID moved the 2020 season
 
 
 def _game(
@@ -160,7 +162,7 @@ def test_covid_seasons_get_their_real_dates() -> None:
     assert NHL.start_date(2020) <= date(2021, 1, 13)
 
 
-@pytest.mark.parametrize("league", [NHL, WNBA], ids=lambda league: league.name)
+@pytest.mark.parametrize("league", [NHL, WNBA, NCAAWVB], ids=lambda league: league.name)
 def test_no_season_overlaps_the_next(league: DailyLeague) -> None:
     """A day belongs to one season, or the same game lands in two files."""
     for year in range(league.first_year, 2030):
@@ -197,6 +199,46 @@ def test_wnba_season_stays_inside_one_year() -> None:
     assert WNBA.end_date(2019) == date(2019, 10, 31)
 
 
+def test_ncaawvb_season_stays_inside_one_year() -> None:
+    """August to a championship before Christmas, all in the same year."""
+    assert NCAAWVB.start_date(2019) == date(2019, 8, 1)
+    assert NCAAWVB.end_date(2019) == date(2019, 12, 31)
+
+
+def test_ncaawvb_2020_reaches_the_spring_championship() -> None:
+    """
+    The season COVID moved: play opened in September 2020, most of the
+    schedule ran in early 2021, and the championship was April 25th. None
+    of that is reachable by widening an August-to-December window, which is
+    why 2020 is given real dates.
+    """
+    assert NCAAWVB.end_date(2020) > date(2021, 4, 25)
+    assert NCAAWVB.is_in_season(date(2021, 3, 1))
+    assert NCAAWVB.is_in_season(date(2021, 4, 25))
+    # ... and the season after it still opens where it always does, so no
+    # day belongs to both.
+    assert NCAAWVB.start_date(2021) == date(2021, 8, 1)
+    assert NCAAWVB.end_date(2020) <= NCAAWVB.start_date(2021)
+
+
+def test_ncaawvb_2020_is_finished_only_after_the_spring() -> None:
+    """
+    Caching 2020 on the window's December end would have frozen a season
+    with its whole spring, championship included, still unplayed.
+    """
+    assert NCAAWVB.is_finished(2020)
+    assert NCAAWVB.end_date(2020) > date(2020, 12, 31)
+
+
+def test_the_spring_of_an_ordinary_year_is_out_of_season() -> None:
+    """
+    2020's dates are real dates, so they mustn't put every March in season
+    -- only March 2021.
+    """
+    assert not NCAAWVB.is_in_season(date(2022, 3, 1))
+    assert not NCAAWVB.is_in_season(date(2019, 3, 1))
+
+
 @pytest.mark.parametrize(
     "league, day, expected",
     [
@@ -206,6 +248,12 @@ def test_wnba_season_stays_inside_one_year() -> None:
         pytest.param(NHL, date(2026, 1, 15), True, id="nhl-january"),
         pytest.param(WNBA, date(2025, 7, 1), True, id="wnba-in-season"),
         pytest.param(WNBA, date(2025, 1, 15), False, id="wnba-offseason"),
+        pytest.param(NCAAWVB, date(2025, 10, 1), True, id="ncaawvb-in-season"),
+        # Volleyball is done by Christmas and doesn't start again until
+        # August, so the whole spring is out of season -- except in 2021,
+        # covered by its own case below.
+        pytest.param(NCAAWVB, date(2025, 3, 1), False, id="ncaawvb-offseason"),
+        pytest.param(NCAAWVB, date(2025, 6, 15), False, id="ncaawvb-summer"),
     ],
 )
 def test_is_in_season(league: DailyLeague, day: date, expected: bool) -> None:
@@ -335,7 +383,7 @@ async def test_get_season__caches_a_finished_season() -> None:
     assert cache.saved == [season]
 
 
-@pytest.mark.parametrize("league", [NHL, WNBA], ids=lambda league: league.name)
+@pytest.mark.parametrize("league", [NHL, WNBA, NCAAWVB], ids=lambda league: league.name)
 async def test_get_season__doesnt_cache_an_unfinished_season(
     league: DailyLeague,
 ) -> None:
@@ -500,6 +548,35 @@ async def test_wnba_keeps_a_scoreless_game_it_hasnt_played_yet() -> None:
     assert [g.game_id for g in games] == ["fixture", "real"]
 
 
+async def test_ncaawvb_drops_scoreless_games() -> None:
+    """
+    A volleyball match is won by taking three sets, so the score is sets and
+    the loser can finish on 0 -- but nobody finishes on 0-0.
+    """
+    bogus = _game(
+        datetime(_FINISHED_NCAAWVB_YEAR, 9, 5), "bogus", home_score=0, away_score=0
+    )
+    sweep = _game(
+        datetime(_FINISHED_NCAAWVB_YEAR, 9, 5), "sweep", home_score=3, away_score=0
+    )
+
+    with _patch_espn_games([bogus, sweep]):
+        games = await get_daily_games(NCAAWVB, date(_FINISHED_NCAAWVB_YEAR, 9, 5))
+
+    assert [g.game_id for g in games] == ["sweep"]
+
+
+async def test_ncaawvb_leaves_team_names_alone() -> None:
+    """
+    ESPN back-fills a program's current name across its whole history here,
+    so there's nothing to collapse -- and no rename table to accidentally
+    rewrite a name with.
+    """
+    for name in ("IU Indianapolis Jaguars", "Nebraska Cornhuskers"):
+        assert NCAAWVB.rename_team(name, date(2011, 9, 10)) == name
+        assert NCAAWVB.rename_team(name, date(2025, 9, 10)) == name
+
+
 @pytest.mark.parametrize("include_unplayed", [False, True])
 async def test_get_daily_games_hands_the_flag_to_espn(include_unplayed: bool) -> None:
     """`get_games` is what actually drops the unfinished games."""
@@ -610,13 +687,19 @@ def test_season_start_is_before_the_earliest_game_of_a_season() -> None:
     """Week 1 has to contain the season's opener, not come after it."""
     assert NHL.start_date(2019) < date(2019, 10, 2)
     assert WNBA.start_date(2019) < date(2019, 5, 24)
+    # 2019's first match was August 29th, and its last -- the championship
+    # -- December 21st.
+    assert NCAAWVB.start_date(2019) < date(2019, 8, 29)
+    assert NCAAWVB.end_date(2019) > date(2019, 12, 21)
 
 
 def test_finished_seasons_are_finished() -> None:
     assert NHL.is_finished(2015)
     assert WNBA.is_finished(2015)
+    assert NCAAWVB.is_finished(2015)
     assert not NHL.is_finished(datetime.now(timezone.utc).year + 5)
     assert not WNBA.is_finished(datetime.now(timezone.utc).year + 5)
+    assert not NCAAWVB.is_finished(datetime.now(timezone.utc).year + 5)
 
 
 def _espn_event(
@@ -652,6 +735,19 @@ def _espn_event(
         (WNBA, 3, "FINAL", "Las Vegas Aces at New York Liberty"),
         # The WNBA's Commissioner's Cup final, which only it declares.
         (WNBA, 2, "CC", "Indiana Fever at Minnesota Lynx"),
+        # Volleyball, where a game played inside a named event is "QRR":
+        # the early-season invitationals, and every round of the NCAA
+        # championship from 2017 on -- which ESPN files under the *regular*
+        # season, so the season type can't be what keeps it.
+        (NCAAWVB, 2, "STD", "Michigan Wolverines at Nebraska Cornhuskers"),
+        (NCAAWVB, 2, "QRR", "Kansas State Wildcats at Purdue Boilermakers"),
+        (NCAAWVB, 2, "QRR", "Louisville Cardinals at Penn State Nittany Lions"),
+        # 2011 through 2014, where ESPN classifies nothing at all. It's the
+        # only competition type those seasons have.
+        (NCAAWVB, 2, "N/A", "Penn State Nittany Lions at Texas Longhorns"),
+        # And the tournament as ESPN tagged it up to 2016, under the
+        # postseason.
+        (NCAAWVB, 3, "QRR", "Denver Pioneers at Stanford Cardinal"),
     ],
 )
 def test_league_play_is_kept(
@@ -681,6 +777,15 @@ def test_league_play_is_kept(
         (NHL, 2, "QRR", "USA at Canada"),
         # The Commissioner's Cup is the WNBA's, so it isn't NHL league play.
         (NHL, 2, "CC", "Some Team at Some Other Team"),
+        # Volleyball allows "N/A" because four of its seasons are nothing
+        # else. That allowance is its own -- for a league that classifies
+        # its games, an unclassified one is still an unknown.
+        (NHL, 2, "N/A", "Some Team at Some Other Team"),
+        (WNBA, 2, "N/A", "Some Team at Some Other Team"),
+        # ... and volleyball still drops what it doesn't recognise, and the
+        # preseason with it.
+        (NCAAWVB, 2, "ALLSTAR", "Team Red at Team Blue"),
+        (NCAAWVB, 1, "STD", "Some Club at Nebraska Cornhuskers"),
     ],
 )
 def test_exhibitions_are_dropped(
