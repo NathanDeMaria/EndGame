@@ -430,7 +430,7 @@ class _OddsLeague:
     season_end: tuple[int, int]
 
 
-# ncaawvb isn't here: ESPN carries no odds for college volleyball at all --
+# ncaawvb isn't here: ESPN carries no odds for college volleyball as of Sept 2026
 # not one of the ~12,700 matches it has served since 2011 comes back with an
 # odds block. That costs more than it looks like from this table: `jobs`
 # fans every league in here out into one job per horizon, and the `today`
