@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from ..season_cache import SeasonCache
-from ..types import Game, Season
+from ..types import Game, Season, SeasonType
 from . import games as games_module
-from .games import N_REGULAR_WEEKS, get_season, move_teams
+from .games import _get_week, get_season, move_teams, n_regular_weeks
 
 
 def _game(home: str, away: str) -> Game:
@@ -144,7 +144,7 @@ async def test_get_season_hands_the_flag_to_every_week(include_unplayed: bool) -
     ):
         await get_season(2019, include_unplayed=include_unplayed)
 
-    assert mock_get_games.await_count == N_REGULAR_WEEKS + 5
+    assert mock_get_games.await_count == n_regular_weeks(2019) + 5
     assert {
         call.kwargs["include_unplayed"] for call in mock_get_games.await_args_list
     } == {include_unplayed}
@@ -166,3 +166,117 @@ async def test_get_season_keeps_a_fixture_with_no_result_yet() -> None:
     assert games, "the fixture was dropped"
     assert not any(g.completed for g in games)
     assert {g.home for g in games} == {"bears"}
+
+
+@pytest.mark.parametrize(
+    "season,expected",
+    [
+        (1999, 17),
+        (2020, 17),
+        # The 17-game season: one more week, so one more game per team.
+        (2021, 18),
+        (2025, 18),
+    ],
+)
+def test_n_regular_weeks(season: int, expected: int) -> None:
+    assert n_regular_weeks(season) == expected
+
+
+@pytest.mark.parametrize("season,expected", [(2020, 17 + 5), (2021, 18 + 5)])
+async def test_get_season_asks_for_every_week_the_season_had(
+    season: int, expected: int
+) -> None:
+    """A 2021 season fetched as 17 weeks is missing every team's last game."""
+    with (
+        patch.object(games_module, "SeasonCache", _FakeSeasonCache),
+        _patch_espn_games([]) as mock_get_games,
+    ):
+        await get_season(season)
+
+    assert mock_get_games.await_count == expected
+
+
+@pytest.mark.parametrize("season", [2020, 2021])
+async def test_week_numbers_never_collide(season: int) -> None:
+    """
+    The NFL has no `season_start`, so its own week numbers are what the
+    season is walked in -- the postseason has to be numbered past the last
+    regular week rather than past a fixed 17.
+    """
+    with (
+        patch.object(games_module, "SeasonCache", _FakeSeasonCache),
+        _patch_espn_games([]),
+    ):
+        fetched = await get_season(season)
+
+    numbers = [week.number for week in fetched.weeks]
+    assert len(numbers) == len(set(numbers))
+    assert numbers == sorted(numbers)
+
+
+async def _week_of(games: list[Game], season: int = 2024) -> list[Game]:
+    with _patch_espn_games(games):
+        week = await _get_week(season, 1, SeasonType.regular, include_unplayed=True)
+    return week.games
+
+
+@pytest.mark.parametrize(
+    "home,away,expected",
+    [
+        # The regression: ESPN renamed these, and a filter on the old
+        # spelling dropped every one of their home games.
+        ("Las Vegas Raiders", "Kansas City Chiefs", ("raiders", "chiefs")),
+        ("Washington Commanders", "Dallas Cowboys", ("commanders", "cowboys")),
+        ("San Diego Chargers", "Denver Broncos", ("chargers", "broncos")),
+        ("St. Louis Rams", "Seattle Seahawks", ("rams", "seahawks")),
+        # ...and the spellings that always worked, still working.
+        ("Oakland Raiders", "Kansas City Chiefs", ("raiders", "chiefs")),
+        ("Washington", "Dallas Cowboys", ("commanders", "cowboys")),
+    ],
+)
+async def test_get_week_keeps_renamed_franchises(
+    home: str, away: str, expected: tuple[str, str]
+) -> None:
+    kept = await _week_of([_game(home=home, away=away)])
+
+    assert [(g.home, g.away) for g in kept] == [expected]
+
+
+async def test_get_week_keeps_a_renamed_franchise_on_the_road() -> None:
+    """Both sides go through the same lookup, so neither can take a game down."""
+    kept = await _week_of([_game(home="Kansas City Chiefs", away="Las Vegas Raiders")])
+
+    assert [(g.home, g.away) for g in kept] == [("chiefs", "raiders")]
+
+
+@pytest.mark.parametrize(
+    "home,away",
+    [
+        ("AFC", "NFC"),
+        ("NFC", "AFC"),
+        ("Afc", "Nfc"),
+        ("AFC All-Stars", "NFC All-Stars"),
+    ],
+)
+async def test_get_week_still_drops_the_pro_bowl(home: str, away: str) -> None:
+    assert await _week_of([_game(home=home, away=away)]) == []
+
+
+async def test_get_week_drops_the_pro_bowl_without_taking_the_week_with_it() -> None:
+    kept = await _week_of(
+        [
+            _game(home="AFC", away="NFC"),
+            _game(home="Las Vegas Raiders", away="Kansas City Chiefs"),
+        ]
+    )
+
+    assert [g.home for g in kept] == ["raiders"]
+
+
+def test_move_teams_rejects_something_that_isnt_a_team() -> None:
+    """
+    `move_teams` stays strict: the caller filters first, so reaching it with
+    a non-franchise means the filter let something through.
+    """
+    with pytest.raises(ValueError, match="Not an NFL franchise"):
+        move_teams(_game(home="AFC", away="NFC"))

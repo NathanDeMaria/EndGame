@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 from logging import getLogger
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 
 from endgame.async_tools import apply_in_parallel
 from endgame.date import get_end_year
@@ -18,43 +18,22 @@ logger = getLogger(__name__)
 # Say each season ends on March 1st
 SEASON_END = (3, 1)
 BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
-REAL_TEAMS = frozenset(
-    [
-        "Arizona Cardinals",
-        "Atlanta Falcons",
-        "Baltimore Ravens",
-        "Buffalo Bills",
-        "Carolina Panthers",
-        "Chicago Bears",
-        "Cincinnati Bengals",
-        "Cleveland Browns",
-        "Dallas Cowboys",
-        "Denver Broncos",
-        "Detroit Lions",
-        "Green Bay Packers",
-        "Houston Texans",
-        "Indianapolis Colts",
-        "Jacksonville Jaguars",
-        "Kansas City Chiefs",
-        "Los Angeles Chargers",
-        "Los Angeles Rams",
-        "Miami Dolphins",
-        "Minnesota Vikings",
-        "New England Patriots",
-        "New Orleans Saints",
-        "New York Giants",
-        "New York Jets",
-        "Oakland Raiders",
-        "Philadelphia Eagles",
-        "Pittsburgh Steelers",
-        "San Francisco 49ers",
-        "Seattle Seahawks",
-        "Tampa Bay Buccaneers",
-        "Tennessee Titans",
-        "Washington",
-    ]
-)
-N_REGULAR_WEEKS = 17
+# The regular season ran 17 weeks (16 games) through 2020 and 18 weeks (17
+# games) from 2021 on -- one more game, not just one more bye.
+FIRST_18_WEEK_SEASON = 2021
+N_POST_WEEKS = 5
+
+
+def n_regular_weeks(season: int) -> int:
+    """
+    How many weeks the regular season ran in `season`.
+
+    Not a constant: asking 2021 and later for 17 weeks left every team's
+    last game of the year out of the season, and numbering the postseason
+    from a fixed 17 would then have collided week 18 with the wild card
+    round.
+    """
+    return 18 if season >= FIRST_18_WEEK_SEASON else 17
 
 
 async def update(location: str = "nfl.csv"):
@@ -98,13 +77,13 @@ async def get_season(
 
     # This "season" is 2019 for the season whose Super Bowl is in 2020
     weeks = []
-    for week in range(1, N_REGULAR_WEEKS + 1):
+    for week in range(1, n_regular_weeks(year) + 1):
         weeks.append(
             await _get_week(
                 year, week, SeasonType.regular, include_unplayed=include_unplayed
             )
         )
-    for week in range(1, 6):
+    for week in range(1, N_POST_WEEKS + 1):
         weeks.append(
             await _get_week(
                 year, week, SeasonType.post, include_unplayed=include_unplayed
@@ -139,12 +118,29 @@ async def _get_week(
     )
 
     games = await get_games(BASE_URL, parameters, include_unplayed=include_unplayed)
-    # Filtering on the home team's name, which a fixture has as much as a
-    # result does -- so this drops the Pro Bowl either way round.
-    games = [move_teams(g) for g in games if g.home in REAL_TEAMS]
+    # Drop what isn't two NFL franchises -- the Pro Bowl, whose sides ESPN
+    # calls "AFC"/"NFC" -- and move the rest onto their current franchise.
+    #
+    # The test is the move itself, on both sides, rather than a list of
+    # acceptable names. A list can only hold one spelling of a franchise
+    # ESPN has since renamed, and the one this used to keep was a mix of
+    # eras: it had "Oakland Raiders" but not "Las Vegas", "Los Angeles
+    # Chargers" but not "San Diego". Every home game of a franchise on the
+    # wrong side of one of those renames was silently dropped -- the
+    # Raiders from 2020 on, Washington from 2022 on, and the San Diego and
+    # St. Louis years of the Chargers and Rams. 528 games in all, which
+    # read as those teams having played half a season.
+    #
+    # `_get_team` already knows every spelling, so routing the filter
+    # through it is what keeps the two from drifting apart again.
+    games = [
+        move_teams(g)
+        for g in games
+        if _get_team(g.home) is not None and _get_team(g.away) is not None
+    ]
 
     if season_type == SeasonType.post:
-        week += N_REGULAR_WEEKS
+        week += n_regular_weeks(season)
     return Week(sorted(games, key=lambda g: g.date), week)
 
 
@@ -179,6 +175,20 @@ def move_teams(game: Game) -> Game:
 
 
 def _move_team_name(old_name: str) -> str:
+    team = _get_team(old_name)
+    if team is None:
+        raise ValueError(f"Not an NFL franchise: {old_name!r}")
+    return team
+
+
+def _get_team(old_name: str) -> Optional[str]:
+    """
+    The current franchise `old_name` played for, under any spelling ESPN
+    has used for it, or None if it isn't an NFL franchise at all.
+
+    None is how the Pro Bowl's conference sides are recognized; it is not a
+    "probably fine, skip it" for a name that should have matched.
+    """
     tidy_name = (
         old_name.replace("San Diego", "Los Angeles")
         .replace("St. Louis", "Los Angeles")
@@ -187,4 +197,7 @@ def _move_team_name(old_name: str) -> str:
         .replace("Oakland Raiders", "Las Vegas Raiders")
         .replace("49ers", "niners")
     )
-    return NflTeam[tidy_name.split(" ")[-1].lower()].name
+    try:
+        return NflTeam[tidy_name.split(" ")[-1].lower()].name
+    except KeyError:
+        return None
