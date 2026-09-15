@@ -151,6 +151,10 @@ def iter_game_rows(
     one Arrow conversion instead of one per game.
     """
     play_number = 0
+    # The previous play's end, across drives: a start ESPN left blank is
+    # filled from it when the two describe the same spot. See
+    # `fill_start_yardline`.
+    previous_end: Mapping[str, Any] = {}
     for drive_number, drive in enumerate(drives, start=1):
         drive_common = {
             "drive_id": _as_str(drive.get("id")),
@@ -183,7 +187,7 @@ def iter_game_rows(
                 "defense_team_id": _defense_team_id(play),
                 "down": _as_down(start.get("down")),
                 "distance": _as_int(start.get("distance")),
-                "yardline": normalize_yardline(start, is_start=True),
+                "yardline": fill_start_yardline(start, previous_end),
                 "end_offense_team_id": _as_str(_get(end, "team", "id")),
                 "end_down": _as_down(end.get("down")),
                 "end_distance": _as_int(end.get("distance")),
@@ -199,6 +203,7 @@ def iter_game_rows(
                 "yards_after_catch": _as_int(play.get("yardsAfterCatch")),
                 **drive_common,
             }
+            previous_end = end
 
 
 def normalize_yardline(
@@ -260,6 +265,56 @@ def normalize_yardline(
         )
         return min(max(yardline, 0), 100)
     return yardline
+
+
+def fill_start_yardline(
+    start: Mapping[str, Any], previous_end: Mapping[str, Any]
+) -> int | None:
+    """
+    A play's start yardline, taken from the previous play's end when ESPN
+    left it blank and the two describe the same spot.
+
+    The blank is common enough to matter and knowable often enough to fill.
+    About a quarter of a percent of NCAAFB scrimmage plays -- 860 in 2025,
+    a tenth of them turnovers and scores -- arrive with `yardsToEndzone: 0`
+    on the start while `possessionText` still names the spot; the review
+    stubs ESPN writes for an overturned-or-upheld call ("The previous play
+    is under automatic review") are the clearest case, and they are the
+    interceptions. `normalize_yardline` rightly reads that zero as missing,
+    and every reader downstream then drops the play: `lucky_ones` can't
+    make a game state without a field position, so the pick is not on the
+    win-probability curve, earns no EPA, and can't be a luck swing.
+
+    The previous play's end is that same spot whenever the possession, down
+    and distance carry over, which they do by construction between one play
+    and the next -- ESPN's `end` *is* the next start. Where both sides are
+    populated the two agree on 96-97% of plays in either league, and the
+    rest is the field's own noise (`normalize_yardline` measures the same
+    3%), so a filled start is as good as a read one. The rule fills two
+    thirds to three quarters of the NCAAFB blanks and next to none of the
+    NFL's, whose few blanks are penalty rows whose down and distance the
+    previous end doesn't share.
+
+    Only an exact match fills. A start whose down or distance differs from
+    the previous end is a different state -- a penalty re-spotted the ball,
+    a period ended -- and a guess at its yardline would be a confident wrong
+    number rather than an honest gap. An end at 100 is the goal line a
+    score reached, not a spot anything is snapped from, and stays out too.
+    """
+    yardline = normalize_yardline(start, is_start=True)
+    if yardline is not None:
+        return yardline
+    team = _get(start, "team", "id")
+    if team is None or team != _get(previous_end, "team", "id"):
+        return None
+    if _as_down(start.get("down")) != _as_down(previous_end.get("down")):
+        return None
+    if _as_int(start.get("distance")) != _as_int(previous_end.get("distance")):
+        return None
+    carried = normalize_yardline(previous_end)
+    if carried is None or carried >= 100:
+        return None
+    return carried
 
 
 def parse_clock(display: Any) -> int | None:

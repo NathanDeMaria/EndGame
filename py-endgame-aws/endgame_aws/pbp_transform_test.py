@@ -1,4 +1,5 @@
 import pyarrow as pa
+import pytest
 
 from .pbp_transform import (
     PLAY_SCHEMA,
@@ -243,3 +244,123 @@ def test_unparseable_clock_and_wallclock_are_null() -> None:
     assert wallclock.isoformat() == "2025-09-26T00:15:34+00:00"
     assert parse_wallclock("") is None
     assert parse_wallclock("not a time") is None
+
+
+# --- a blank start, filled from the last end -------------------------------
+#
+# The interception ESPN writes as a review stub: `yardsToEndzone: 0` on the
+# start, while the previous play's end still says where the ball was.
+
+
+def _review_stub_interception() -> dict:
+    return _play(
+        id="p2",
+        type={"id": "63", "text": "Interception"},
+        text=(
+            "(14:26) #10 A.Colandrea pass intercepted by #2 J.Johnson at BG 46, "
+            "End Of Play. The previous play is under automatic review - "
+            '"Interception". CALL UPHELD'
+        ),
+        start={"down": 1, "distance": 10, "yardsToEndzone": 0, "team": {"id": "22"}},
+        end={"down": 0, "distance": 10, "yardsToEndzone": 0, "team": {"id": "26"}},
+    )
+
+
+def test_a_blank_start_is_filled_from_the_previous_end() -> None:
+    first = _play()  # ends 2nd & 2 at yardsToEndzone 66, team 22
+    stub = _review_stub_interception()
+    stub["start"]["down"], stub["start"]["distance"] = 2, 2
+
+    rows = transform_game_to_table(
+        [_drive(first, stub)], "g1", "ncaafb", 2026, 4
+    ).to_pylist()
+
+    assert rows[0]["end_yardline"] == 34
+    assert rows[1]["yardline"] == 34
+    # The stub's own end is read as ESPN sent it: an end at 0 is the goal line.
+    assert rows[1]["end_yardline"] == 100
+
+
+def test_the_fill_carries_across_a_drive_boundary() -> None:
+    """The previous play is the previous play, whichever drive it was in."""
+    first = _play()
+    stub = _review_stub_interception()
+    stub["start"]["down"], stub["start"]["distance"] = 2, 2
+
+    rows = transform_game_to_table(
+        [_drive(first), _drive(stub)], "g1", "ncaafb", 2026, 4
+    ).to_pylist()
+
+    assert rows[1]["yardline"] == 34
+
+
+@pytest.mark.parametrize(
+    ("start", "why"),
+    [
+        (
+            {"down": 1, "distance": 10, "yardsToEndzone": 0, "team": {"id": "22"}},
+            "down differs",
+        ),
+        (
+            {"down": 2, "distance": 7, "yardsToEndzone": 0, "team": {"id": "22"}},
+            "distance differs",
+        ),
+        (
+            {"down": 2, "distance": 2, "yardsToEndzone": 0, "team": {"id": "26"}},
+            "other team",
+        ),
+        ({"down": 2, "distance": 2, "yardsToEndzone": 0}, "no team"),
+    ],
+)
+def test_a_start_that_is_not_the_previous_end_stays_blank(
+    start: dict, why: str
+) -> None:
+    """A guess at a re-spotted ball would be a confident wrong number."""
+    first = _play()
+    stub = _review_stub_interception()
+    stub["start"] = start
+
+    rows = transform_game_to_table(
+        [_drive(first, stub)], "g1", "ncaafb", 2026, 4
+    ).to_pylist()
+
+    assert rows[1]["yardline"] is None, why
+
+
+def test_the_goal_line_a_score_reached_is_not_a_spot_to_snap_from() -> None:
+    touchdown = _play(
+        end={"down": 1, "distance": 10, "yardsToEndzone": 0, "team": {"id": "22"}}
+    )
+    after = _play(
+        id="p2",
+        start={"down": 1, "distance": 10, "yardsToEndzone": 0, "team": {"id": "22"}},
+    )
+
+    rows = transform_game_to_table(
+        [_drive(touchdown, after)], "g1", "ncaafb", 2026, 4
+    ).to_pylist()
+
+    assert rows[0]["end_yardline"] == 100
+    assert rows[1]["yardline"] is None
+
+
+def test_a_populated_start_is_never_overwritten() -> None:
+    first = _play()
+    second = _play(
+        id="p2",
+        start={"down": 2, "distance": 2, "yardsToEndzone": 60, "team": {"id": "22"}},
+    )
+
+    rows = transform_game_to_table(
+        [_drive(first, second)], "g1", "ncaafb", 2026, 4
+    ).to_pylist()
+
+    assert rows[1]["yardline"] == 40
+
+
+def test_the_first_play_of_a_game_has_nothing_to_carry() -> None:
+    stub = _review_stub_interception()
+    (row,) = transform_game_to_table(
+        [_drive(stub)], "g1", "ncaafb", 2026, 4
+    ).to_pylist()
+    assert row["yardline"] is None
