@@ -3,6 +3,8 @@ from datetime import date, timedelta
 from logging import getLogger
 from typing import AsyncIterator, Dict, List, Optional, Tuple, TypedDict
 
+import aiohttp
+
 from .date import chunk_date_range, format_dates_param
 from .web import RequestParameters, get
 
@@ -32,6 +34,18 @@ ODDS_PAGE_LIMIT = 1000
 DEFAULT_ODDS_CHUNK_DAYS = 14
 
 
+class _RangeRefused(Exception):
+    """
+    ESPN answered a `dates=start-end` request with 400 Bad Request.
+
+    It started doing so on 2026-09-16, for every league and any span down
+    to two days, after accepting ranges for as long as this module has
+    sent them; a single day still works. Whether that is a policy or an
+    outage nobody can say, so the range is still the first thing asked
+    for, and this is how `get_odds_range` learns to stop asking.
+    """
+
+
 class Odds(TypedDict):
     competition_id: str
     # When the game is played, as ESPN's own ISO-8601 UTC string.
@@ -54,7 +68,12 @@ async def _get_odds_page(
     odds, because it's what says whether ESPN truncated: a response is only
     trustworthy if it came back under `ODDS_PAGE_LIMIT`.
     """
-    content = await get(url, parameters)
+    try:
+        content = await get(url, parameters)
+    except aiohttp.ClientResponseError as error:
+        if error.status == 400 and "-" in str((parameters or {}).get("dates", "")):
+            raise _RangeRefused() from error
+        raise
     tree = json.loads(content.data)
     events = tree.get("events") or []
     odds = []
@@ -163,8 +182,33 @@ async def get_odds_range(
     Long stretches are still split -- `chunk_days` at a time, and further if
     a chunk comes back at the cap -- because a range that overflows one
     response is truncated without saying so.
+
+    When ESPN refuses a range outright (`_RangeRefused`) the rest of the
+    pull is asked for a day at a time. That is the request count this was
+    built to avoid, but a fortnight's `near` horizon is fourteen requests
+    once a day and a season's is a few hundred once a week, which is
+    affordable; what is not affordable is the alternative, which was every
+    horizon wider than a day failing for two days straight. One refusal is
+    enough to switch: a 400 on a range is deterministic, and `web.get`
+    already spends thirty seconds of retries finding that out.
     """
     base = dict(base_parameters or {})
+    ranges = True
     for chunk_start, chunk_end in chunk_date_range(start, end, chunk_days):
-        async for odd in _get_odds_span(url, base, chunk_start, chunk_end):
-            yield odd
+        if ranges and chunk_start != chunk_end:
+            try:
+                async for odd in _get_odds_span(url, base, chunk_start, chunk_end):
+                    yield odd
+                continue
+            except _RangeRefused:
+                logger.warning(
+                    "%s refused the date range %s..%s; asking a day at a time "
+                    "for the rest of this pull",
+                    url,
+                    chunk_start,
+                    chunk_end,
+                )
+                ranges = False
+        for day, _ in chunk_date_range(chunk_start, chunk_end, 1):
+            async for odd in _get_odds_span(url, base, day, day):
+                yield odd

@@ -1,7 +1,9 @@
 import json
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from unittest.mock import patch
+
+import aiohttp
 
 from . import espn_odds as espn_odds_module
 from .espn_odds import ODDS_PAGE_LIMIT, get_odds_range
@@ -223,3 +225,79 @@ async def test_the_cap_is_asked_for_on_every_request() -> None:
         ]
 
     assert seen == [ODDS_PAGE_LIMIT] * 3
+
+
+def _bad_request() -> aiohttp.ClientResponseError:
+    request_info: Any = None
+    return aiohttp.ClientResponseError(
+        request_info=request_info, history=(), status=400, message="Bad Request"
+    )
+
+
+class _RangeRefusingEspn(_FakeEspn):
+    """
+    ESPN as of 2026-09-16: a single day is answered, any range is a 400.
+    """
+
+    async def __call__(self, url, parameters):
+        dates = parameters["dates"]
+        self.requested.append(dates)
+        if "-" in dates:
+            raise _bad_request()
+        return _FakeContent({"events": self.responses.get(dates, self.default)})
+
+
+async def test_a_refused_range_is_asked_for_a_day_at_a_time() -> None:
+    """
+    The `near` horizon on 2026-09-16: every league's fortnight came back
+    400 and the job died. The range is still tried first, then the pull
+    walks the days -- and stops trying ranges once one has been refused,
+    rather than paying the retries again on every chunk.
+    """
+    fake = _RangeRefusingEspn(
+        {
+            "20260916": [_event("a", "2026-09-16")],
+            "20260918": [_event("b", "2026-09-18")],
+        }
+    )
+
+    with _patch_espn(fake):
+        odds = [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 9, 16), end=date(2026, 9, 19), chunk_days=2
+            )
+        ]
+
+    assert fake.requested == [
+        "20260916-20260917",  # the one range tried, and refused
+        "20260916",
+        "20260917",
+        "20260918",  # the second chunk never tries its range
+        "20260919",
+    ]
+    assert [o["competition_id"] for o in odds] == ["a", "b"]
+
+
+async def test_a_400_on_a_single_day_is_still_an_error() -> None:
+    """
+    Only a range being refused means "ask by the day"; a 400 on a day is
+    whatever it is, and hiding it would turn a broken URL into no odds.
+    """
+
+    class _Broken(_FakeEspn):
+        async def __call__(self, url, parameters):
+            raise _bad_request()
+
+    with _patch_espn(_Broken({})):
+        try:
+            [
+                o
+                async for o in get_odds_range(
+                    _URL, start=date(2026, 9, 16), end=date(2026, 9, 16)
+                )
+            ]
+        except aiohttp.ClientResponseError as error:
+            assert error.status == 400
+        else:
+            raise AssertionError("a 400 on a single day was swallowed")
