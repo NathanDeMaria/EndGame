@@ -16,14 +16,39 @@ logger = getLogger(__name__)
 # asked for with limit=300 came back with exactly 300 events, the last day
 # cut from 47 games to 4, and nothing in the response said so. A request is
 # one day now, which no schedule comes close to filling, but the limit is
-# still asked for high and a full response still warned about -- that is the
+# still asked for high and a full response still raised on -- that is the
 # only signal there is that a response was cut.
 #
-# Above roughly 1000 ESPN stops honouring the parameter altogether and falls
-# back to its own default of 25, which would be a much quieter way to lose
-# most of a season. Measured on a 14-day NCAABB range: 900 and 1000 both
-# return the real 670, 1200 and up return 25. Hence 1000 and not more.
-ODDS_PAGE_LIMIT = 1000
+# Ask for too much and ESPN stops honouring the parameter at all, falling
+# back to its own default of 25. This used to be 1000, on a measurement
+# taken over a 14-day NCAABB range, where 900 and 1000 both returned the
+# real 670. That threshold does not hold for a single day: asking
+# college-football, groups=80, dates=20260912 -- a Saturday with 80 real
+# FBS events -- returns all 80 at limit<=500 and exactly 25 at limit>=600.
+#
+# Since the day-at-a-time change every request is that shape, so the old
+# 1000 silently cut every football Saturday from 80 games to 25. 300 is
+# inside the honoured band on both measurements and still four times any
+# day either sport has played.
+ODDS_PAGE_LIMIT = 300
+
+# What ESPN serves when it decides to ignore `limit` entirely. A response of
+# exactly this size is therefore ambiguous -- it is either a real 25-event
+# day or the parameter being dropped on the floor -- and `_get_odds_day`
+# spends one extra request to tell the two apart rather than guessing.
+ESPN_DEFAULT_LIMIT = 25
+
+
+class OddsTruncated(Exception):
+    """ESPN gave back less than a day, and said nothing about it.
+
+    Raised rather than logged because the damage is invisible downstream: a
+    truncated day is indistinguishable from a quiet one once it is a list of
+    prices, so a run that carries on writes a snapshot that looks complete
+    and is not. Every caller here is a scheduled pull whose next run is an
+    hour away -- failing it is cheap, and a missing snapshot is a far louder
+    signal than a short one.
+    """
 
 # How many of a range's days are in flight at once.
 #
@@ -97,8 +122,22 @@ async def _get_odds_day(
 
     A full response used to mean "ask for a narrower span", and this used to
     halve the span and recurse. A day is the narrowest request ESPN still
-    accepts, so there is nowhere left to split: a full day is kept and
-    warned about, which is what the old single-day base case did anyway.
+    accepts, so there is nowhere left to split: a full day is a truncation
+    nothing here can work around, and it raises.
+
+    Two ways a day comes back short, and neither announces itself:
+
+    * **At the cap.** `n_events == ODDS_PAGE_LIMIT` means ESPN stopped
+      counting, and the rest of the day is gone.
+    * **At ESPN's own default.** `n_events == ESPN_DEFAULT_LIMIT` means
+      either a real 25-event day or `limit` being ignored, and those look
+      identical in the response. The tie is broken by asking again for a
+      number ESPN is known to honour: if a *smaller* limit returns *more*
+      events, the parameter is not being respected at the size we ask for.
+
+    That second check is the one that would have caught the 1000 -> 25
+    fallback on the day it started, instead of two seasons of football
+    Saturdays quietly arriving at 25 games.
     """
     parameters = dict(base_parameters)
     parameters["dates"] = day.strftime("%Y%m%d")
@@ -106,16 +145,26 @@ async def _get_odds_day(
 
     n_events, odds = await _get_odds_page(url, parameters)
     if n_events >= ODDS_PAGE_LIMIT:
-        # One day with 1000+ events is beyond anything any of these sports
-        # has played, so this is much more likely to be ESPN changing its
-        # cap than a real schedule.
-        logger.warning(
-            "%s returned a full %d events for the single day %s -- "
-            "odds for that day are probably incomplete",
-            url,
-            ODDS_PAGE_LIMIT,
-            day,
+        raise OddsTruncated(
+            f"{url} returned a full {n_events} events for {day} at "
+            f"limit={ODDS_PAGE_LIMIT}; the rest of that day was dropped"
         )
+    if n_events == ESPN_DEFAULT_LIMIT:
+        # One extra request, only on the days that are ambiguous. A real
+        # 25-event day answers the same both times and costs nothing but
+        # the round trip.
+        probe = dict(parameters)
+        probe["limit"] = ESPN_DEFAULT_LIMIT * 2
+        probe_events, probe_odds = await _get_odds_page(url, probe)
+        if probe_events > n_events:
+            raise OddsTruncated(
+                f"{url} returned {n_events} events for {day} at "
+                f"limit={ODDS_PAGE_LIMIT} but {probe_events} at "
+                f"limit={probe['limit']}: ESPN is ignoring the limit and "
+                f"serving its default of {ESPN_DEFAULT_LIMIT}"
+            )
+        # The smaller ask is the honoured one, so prefer what it returned.
+        return probe_odds
     return odds
 
 
