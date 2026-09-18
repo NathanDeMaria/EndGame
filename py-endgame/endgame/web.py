@@ -76,6 +76,17 @@ async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
             aiohttp.ClientPayloadError,
             aiohttp.ServerDisconnectedError,
         ) as error:
+            # A 4xx is a request this code got wrong. Asking again with the
+            # same bytes spends the whole backoff to be told so five times,
+            # which is how a scoreboard range that ESPN stopped accepting
+            # read as flakiness instead of as a broken URL. 429 is the one
+            # that does mean "later": keep retrying that.
+            if (
+                isinstance(error, aiohttp.ClientResponseError)
+                and 400 <= error.status < 500
+                and error.status != 429
+            ):
+                raise error
             if i + 1 == max_retries:
                 raise error
             # Exponential backoff w/ +/- 10% jitter

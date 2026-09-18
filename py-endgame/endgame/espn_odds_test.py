@@ -89,9 +89,10 @@ async def test_games_with_no_price_are_skipped() -> None:
     assert [o["competition_id"] for o in odds] == ["401"]
 
 
-async def test_a_range_inside_one_chunk_is_a_single_request() -> None:
+async def test_a_range_is_one_request_per_day() -> None:
     """
-    The whole point: a fortnight of odds costs one request, not fourteen.
+    ESPN 400s a `dates` range as of 2026-09-16, so a fortnight of odds is
+    fourteen requests. Both ends are included.
     """
     fake = _FakeEspn({})
 
@@ -103,10 +104,14 @@ async def test_a_range_inside_one_chunk_is_a_single_request() -> None:
             )
         ]
 
-    assert fake.requested == ["20260903-20260916"]
+    assert sorted(fake.requested) == [f"202609{day:02d}" for day in range(3, 17)]
 
 
-async def test_a_long_range_is_asked_for_a_chunk_at_a_time() -> None:
+async def test_no_request_ever_asks_for_a_span() -> None:
+    """
+    The regression guard. A `dates` of `20260901-20260921` is a 400 from
+    ESPN and a day of missing odds here, and it took two days to notice.
+    """
     fake = _FakeEspn({})
 
     with _patch_espn(fake):
@@ -117,76 +122,56 @@ async def test_a_long_range_is_asked_for_a_chunk_at_a_time() -> None:
             )
         ]
 
-    assert fake.requested == [
-        "20260901-20260907",
-        "20260908-20260914",
-        "20260915-20260921",
-    ]
+    assert fake.requested
+    assert not [dates for dates in fake.requested if "-" in dates]
 
 
-async def test_a_truncated_response_is_split_in_half_and_re_asked() -> None:
+async def test_a_single_day_is_still_a_single_request() -> None:
+    fake = _FakeEspn({})
+
+    with _patch_espn(fake):
+        [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 9, 3), end=date(2026, 9, 3)
+            )
+        ]
+
+    assert fake.requested == ["20260903"]
+
+
+async def test_odds_come_back_in_date_order_though_the_days_are_parallel() -> None:
     """
-    ESPN caps a response and says nothing about it, so a full one can't be
-    trusted -- see ODDS_PAGE_LIMIT.
+    The days are fetched concurrently, but a snapshot is appended to rather
+    than keyed by game, so the order it is written in is the order it is
+    read back in.
     """
-    full = [_event(str(i), "2026-09-03") for i in range(ODDS_PAGE_LIMIT)]
     fake = _FakeEspn(
-        {"20260901-20260908": full},
-        default=[_event("401", "2026-09-03")],
+        {
+            "20260901": [_event("401", "2026-09-01")],
+            "20260902": [_event("402", "2026-09-02")],
+            "20260903": [_event("403", "2026-09-03")],
+        }
     )
 
     with _patch_espn(fake):
         odds = [
             o
             async for o in get_odds_range(
-                _URL, start=date(2026, 9, 1), end=date(2026, 9, 8), chunk_days=8
+                _URL, start=date(2026, 9, 1), end=date(2026, 9, 3)
             )
         ]
 
-    # The halves are consecutive and don't overlap: a shared day would
-    # report the same game's price twice.
-    assert fake.requested == [
-        "20260901-20260908",
-        "20260901-20260904",
-        "20260905-20260908",
-    ]
-    # What's kept is the halves' answers, not the truncated response.
-    assert len(odds) == 2
+    assert [o["competition_id"] for o in odds] == ["401", "402", "403"]
 
 
-async def test_a_split_keeps_splitting_until_the_pieces_fit() -> None:
-    full = [_event(str(i), "2026-09-03") for i in range(ODDS_PAGE_LIMIT)]
-    fake = _FakeEspn(
-        {
-            "20260901-20260904": full,
-            "20260901-20260902": full,
-        },
-        default=[_event("401", "2026-09-03")],
-    )
-
-    with _patch_espn(fake):
-        [
-            o
-            async for o in get_odds_range(
-                _URL, start=date(2026, 9, 1), end=date(2026, 9, 4), chunk_days=4
-            )
-        ]
-
-    assert fake.requested == [
-        "20260901-20260904",
-        "20260901-20260902",
-        "20260901",
-        "20260902",
-        "20260903-20260904",
-    ]
-
-
-async def test_a_single_day_that_still_comes_back_full_is_kept_and_logged(
+async def test_a_day_that_comes_back_full_is_kept_and_logged(
     caplog,
 ) -> None:
     """
-    Nothing left to split. Better to keep the (probably incomplete) day and
-    say so than to drop it silently.
+    A day is the narrowest request ESPN takes, so there is nothing left to
+    split. Better to keep the (probably incomplete) day and say so than to
+    drop it silently.
     """
     full = [_event(str(i), "2026-09-03") for i in range(ODDS_PAGE_LIMIT)]
     fake = _FakeEspn({"20260903": full})
@@ -222,4 +207,4 @@ async def test_the_cap_is_asked_for_on_every_request() -> None:
             )
         ]
 
-    assert seen == [ODDS_PAGE_LIMIT] * 3
+    assert seen == [ODDS_PAGE_LIMIT] * 21
