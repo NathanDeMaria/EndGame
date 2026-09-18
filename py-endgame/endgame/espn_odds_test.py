@@ -3,8 +3,15 @@ from datetime import date
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
+import pytest
+
 from . import espn_odds as espn_odds_module
-from .espn_odds import ODDS_PAGE_LIMIT, get_odds_range
+from .espn_odds import (
+    ESPN_DEFAULT_LIMIT,
+    ODDS_PAGE_LIMIT,
+    OddsTruncated,
+    get_odds_range,
+)
 
 _URL = "https://example.test/scoreboard"
 
@@ -165,18 +172,55 @@ async def test_odds_come_back_in_date_order_though_the_days_are_parallel() -> No
     assert [o["competition_id"] for o in odds] == ["401", "402", "403"]
 
 
-async def test_a_day_that_comes_back_full_is_kept_and_logged(
-    caplog,
-) -> None:
+class _FakeEspnByLimit:
+    """
+    Stands in for `web.get` for the days where the answer depends on what
+    `limit` was asked for -- which is the whole failure this guards.
+    """
+
+    def __init__(self, by_limit: Dict[tuple, List[dict]]):
+        self.by_limit = by_limit
+        self.requested: List[tuple] = []
+
+    async def __call__(self, url, parameters):
+        key = (parameters["dates"], int(parameters["limit"]))
+        self.requested.append(key)
+        return _FakeContent({"events": self.by_limit[key]})
+
+
+async def test_a_day_that_comes_back_full_raises() -> None:
     """
     A day is the narrowest request ESPN takes, so there is nothing left to
-    split. Better to keep the (probably incomplete) day and say so than to
-    drop it silently.
+    split. A short day is invisible downstream -- it looks exactly like a
+    quiet one -- so the run stops instead of writing a snapshot that claims
+    to be a whole day.
     """
     full = [_event(str(i), "2026-09-03") for i in range(ODDS_PAGE_LIMIT)]
     fake = _FakeEspn({"20260903": full})
 
-    with _patch_espn(fake), caplog.at_level("WARNING"):
+    with _patch_espn(fake), pytest.raises(OddsTruncated, match="full"):
+        [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 9, 3), end=date(2026, 9, 3)
+            )
+        ]
+
+
+async def test_a_genuine_twenty_five_event_day_is_kept() -> None:
+    """
+    25 is ESPN's default page, so a day that size is ambiguous -- but a real
+    one answers the same however it is asked, and must not fail the run.
+    """
+    real = [_event(str(i), "2026-09-03") for i in range(ESPN_DEFAULT_LIMIT)]
+    fake = _FakeEspnByLimit(
+        {
+            ("20260903", ODDS_PAGE_LIMIT): real,
+            ("20260903", ESPN_DEFAULT_LIMIT * 2): real,
+        }
+    )
+
+    with patch.object(espn_odds_module, "get", fake):
         odds = [
             o
             async for o in get_odds_range(
@@ -184,9 +228,48 @@ async def test_a_day_that_comes_back_full_is_kept_and_logged(
             )
         ]
 
-    assert len(odds) == ODDS_PAGE_LIMIT
-    assert fake.requested == ["20260903"]
-    assert "probably incomplete" in caplog.text
+    assert len(odds) == ESPN_DEFAULT_LIMIT
+    # The second request is the cost of telling the two cases apart, and it
+    # is only paid on a day that lands exactly on the default.
+    assert len(fake.requested) == 2
+
+
+async def test_a_limit_espn_ignores_raises() -> None:
+    """
+    The 1000 -> 25 fallback, which is what this whole check is for.
+
+    Asking college-football for a single Saturday at limit=1000 returned 25
+    of the day's 80 events, under the cap and so indistinguishable from a
+    quiet day. Asking for a number ESPN honours returns the other 55, and
+    the disagreement between the two is the only evidence there is.
+    """
+    served = [_event(str(i), "2026-09-03") for i in range(ESPN_DEFAULT_LIMIT)]
+    real = [_event(str(i), "2026-09-03") for i in range(80)]
+    fake = _FakeEspnByLimit(
+        {
+            ("20260903", ODDS_PAGE_LIMIT): served,
+            ("20260903", ESPN_DEFAULT_LIMIT * 2): real,
+        }
+    )
+
+    with patch.object(espn_odds_module, "get", fake):
+        with pytest.raises(OddsTruncated, match="ignoring the limit"):
+            [
+                o
+                async for o in get_odds_range(
+                    _URL, start=date(2026, 9, 3), end=date(2026, 9, 3)
+                )
+            ]
+
+
+async def test_the_cap_asked_for_is_one_espn_honours() -> None:
+    """
+    Not just any high number: 1000 is *above* the threshold on a single-day
+    request and gets silently swapped for 25. The measured honoured band on
+    college-football/groups=80 is limit<=500.
+    """
+    assert ODDS_PAGE_LIMIT <= 500
+    assert ODDS_PAGE_LIMIT > ESPN_DEFAULT_LIMIT * 2
 
 
 async def test_the_cap_is_asked_for_on_every_request() -> None:
