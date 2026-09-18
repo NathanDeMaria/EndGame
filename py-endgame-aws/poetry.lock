@@ -540,8 +540,8 @@ python-dateutil = "^2.8.2"
 [package.source]
 type = "git"
 url = "https://github.com/NathanDeMaria/EndGame.git"
-reference = "7c570ef5fe7dfca3f3721a808e9676b36635fa87"
-resolved_reference = "7c570ef5fe7dfca3f3721a808e9676b36635fa87"
+reference = "6fce093111b98a6e092c61d51ea444f176017a19"
+resolved_reference = "6fce093111b98a6e092c61d51ea444f176017a19"
 subdirectory = "py-endgame"
 
 [[package]]
@@ -2644,4 +2644,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "9f2b396eed5bb86fdf566d9189634251dedbcfa7bff9a1c7ec3eaf81b2308025"
+content-hash = "91f36fc10c3f70746a732d4cbddc9083ab9ecc287289e8bd0b84e7c387412e1a"
