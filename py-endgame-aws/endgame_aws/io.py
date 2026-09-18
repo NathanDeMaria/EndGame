@@ -141,6 +141,19 @@ async def read_from_s3(bucket: str, key: str, client) -> bytes:
         return await stream.read()
 
 
+async def read_bytes(bucket: str, key: str) -> bytes:
+    """
+    One object, for a caller that has no s3 client of its own.
+
+    `read_from_s3` takes a client because its callers are fetching many
+    objects at once and want one connection for the lot. A caller reading a
+    single object shouldn't have to build a session to do it.
+    """
+    session = get_session()
+    async with session.create_client("s3") as client:
+        return await read_from_s3(bucket, key, client)
+
+
 async def list_keys(bucket: str, prefix: str, client) -> AsyncIterator[str]:
     paginator = client.get_paginator("list_objects_v2")
     async for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
