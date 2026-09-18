@@ -1,7 +1,7 @@
 import json
 from datetime import date, timedelta
 from logging import getLogger
-from typing import AsyncIterator, Dict, List, Optional, Tuple, TypedDict
+from typing import AsyncIterator, Dict, List, NamedTuple, Optional, Tuple, TypedDict
 
 from .async_tools import apply_in_parallel
 from .date import date_range
@@ -39,7 +39,37 @@ ODDS_PAGE_LIMIT = 300
 ESPN_DEFAULT_LIMIT = 25
 
 
-class OddsTruncated(Exception):
+# How many events a range has to carry before "none of them were priced"
+# counts as evidence of anything. A stray exhibition or an all-star day can
+# come back listed and unpriced, and failing a scheduled pull over two
+# events would be noise; a whole range of them is a different claim.
+MIN_EVENTS_TO_EXPECT_A_PRICE = 10
+
+
+class OddsProblem(Exception):
+    """A pull came back wrong in a way the response itself doesn't admit to.
+
+    A base so a caller can catch the class -- these are all "the data is not
+    what it claims to be", and a scheduled job wants to stop on any of them
+    rather than enumerate the ones known so far.
+    """
+
+
+class NoPricesFound(OddsProblem):
+    """A range listed games and not one of them carried a price.
+
+    The failure a schema change looks like. `_get_odds_page` reads prices out
+    of `competition["odds"]` and skips an event that has none, so if ESPN
+    renames that key or moves it, every event is silently "unpriced" and the
+    pull writes an empty snapshot -- which is indistinguishable from an
+    off-season day, and is exactly how a rename would go unnoticed for a
+    season. A range that saw real events and priced none of them is the
+    cheapest place to catch it: no second request, no second source, just
+    the two numbers the parse already has.
+    """
+
+
+class OddsTruncated(OddsProblem):
     """ESPN gave back less than a day, and said nothing about it.
 
     Raised rather than logged because the damage is invisible downstream: a
@@ -49,6 +79,7 @@ class OddsTruncated(Exception):
     hour away -- failing it is cheap, and a missing snapshot is a far louder
     signal than a short one.
     """
+
 
 # How many of a range's days are in flight at once.
 #
@@ -112,11 +143,23 @@ async def get_odds(url: str, parameters: RequestParameters) -> AsyncIterator[Odd
         yield odd
 
 
+class _DayOdds(NamedTuple):
+    """One day's parse: how many events ESPN listed, and the priced ones.
+
+    The event count rides along because `get_odds_range` needs it and the
+    day is the only place it exists -- an unpriced event leaves nothing
+    behind in `odds` to be counted later.
+    """
+
+    events: int
+    odds: List[Odds]
+
+
 async def _get_odds_day(
     url: str,
     base_parameters: Dict,
     day: date,
-) -> List[Odds]:
+) -> _DayOdds:
     """
     One day's priced games.
 
@@ -164,8 +207,8 @@ async def _get_odds_day(
                 f"serving its default of {ESPN_DEFAULT_LIMIT}"
             )
         # The smaller ask is the honoured one, so prefer what it returned.
-        return probe_odds
-    return odds
+        return _DayOdds(probe_events, probe_odds)
+    return _DayOdds(n_events, odds)
 
 
 async def get_odds_range(
@@ -198,10 +241,24 @@ async def get_odds_range(
     base = dict(base_parameters or {})
     # `date_range` stops before its end; this range includes it.
     days = date_range(start, end + timedelta(days=1))
+    seen_events = 0
+    seen_priced = 0
     async for day_odds in apply_in_parallel(
         _get_odds_day,
         [(url, base, day) for day in days],
         max_parallel=ODDS_MAX_PARALLEL_DAYS,
     ):
-        for odd in day_odds:
+        seen_events += day_odds.events
+        seen_priced += len(day_odds.odds)
+        for odd in day_odds.odds:
             yield odd
+
+    # Games listed, none priced: see `NoPricesFound`. Checked over the range
+    # rather than per day because a single unpriced day is ordinary -- a
+    # season horizon reaches months past where any book has posted -- and a
+    # range where nothing at all is priced is not.
+    if seen_events >= MIN_EVENTS_TO_EXPECT_A_PRICE and seen_priced == 0:
+        raise NoPricesFound(
+            f"{url} listed {seen_events} events between {start} and {end} "
+            f"and priced none of them; the odds are missing or have moved"
+        )

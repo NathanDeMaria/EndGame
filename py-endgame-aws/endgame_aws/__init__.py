@@ -3,6 +3,7 @@ from .io import (
     FlattenedBoxScore,
     list_all_keys,
     read_all_odds,
+    read_bytes,
     read_box_scores,
     read_possessions,
     read_seasons,

@@ -50,6 +50,7 @@ from . import (
     get_pbp_store,
     get_processed_plays_store,
     list_all_keys,
+    read_bytes,
     read_box_scores,
     read_possessions,
     save_csv_to_s3,
@@ -492,6 +493,91 @@ def _odds_window(league: _OddsLeague, horizon: str, day: date) -> tuple[date, da
     return day, _ODDS_HORIZONS[horizon](league, day)
 
 
+# How far a horizon's coverage of a game date may fall before a pull is
+# treated as broken rather than quiet. Not zero -- a book pulls a line now
+# and then, and failing a scheduled job over one game would be noise. Losing
+# a third of a date's priced games is not that.
+_ODDS_COVERAGE_FLOOR = 0.67
+
+# Below this a date's count is too small to say anything: 2 -> 1 is a book
+# changing its mind, not a pipeline breaking.
+_ODDS_COVERAGE_MIN_GAMES = 5
+
+
+class OddsCoverageDropped(Exception):
+    """A pull found materially fewer games than the pull before it did.
+
+    The catch-all for the failures the request itself cannot see. A truncated
+    response, an auth change, a renamed field, a league quietly dropping off
+    ESPN's scoreboard -- none of them announce themselves, and all of them
+    look like "today was quiet" in a snapshot. What they cannot look like is
+    a game date *losing* games it already had.
+
+    Compared per game date and only for dates still in the future, which is
+    what makes it usable on a real schedule: a league that plays Saturdays
+    has an empty Tuesday every week, and any check on the size of a pull
+    alone would have to know that. A date that already had 40 priced games
+    and now has 9 needs no calendar to be alarming.
+    """
+
+
+async def _check_odds_coverage(
+    bucket: str,
+    league: str,
+    horizon: str,
+    new_key: str,
+    league_odds: list,
+    today: date,
+) -> None:
+    """
+    Compare a pull against the last one of the same horizon, before it lands.
+
+    Checked before the write rather than after, so a pull that looks broken
+    leaves the previous snapshot as the newest one instead of burying it
+    under a worse one. `OddsDatabase` takes the most recently read snapshot
+    for a game, so writing first would mean the bad numbers win even if this
+    raises immediately afterwards.
+
+    Same horizon only. The three cover different spans -- `today` reaches one
+    day and `season` reaches months -- so comparing across them would find
+    almost no dates in common and quietly check nothing.
+    """
+    suffix = f"-{horizon}.json"
+    previous = [
+        key
+        async for key in list_all_keys(bucket, f"odds/{league}/")
+        if key.endswith(suffix) and key != new_key
+    ]
+    if not previous:
+        return
+    # Lexicographic order is chronological: the key is
+    # odds/<league>/<YYYY-MM-DD>/<HH-MM>-<horizon>.json.
+    last = max(previous)
+    try:
+        before = json.loads((await read_bytes(bucket, last)).decode())
+    except Exception:
+        # A snapshot that can't be read is not evidence the new one is bad.
+        logger.warning("Couldn't read %s to compare coverage against", last)
+        return
+
+    def by_date(records: list) -> Counter:
+        return Counter(str(r["date"])[:10] for r in records)
+
+    was, now = by_date(before), by_date(league_odds)
+    for day, had in sorted(was.items()):
+        if day <= today.isoformat() or had < _ODDS_COVERAGE_MIN_GAMES:
+            # Past dates legitimately shed games: once one is final ESPN
+            # stops carrying a price for it.
+            continue
+        has = now.get(day, 0)
+        if has < had * _ODDS_COVERAGE_FLOOR:
+            raise OddsCoverageDropped(
+                f"{league} {horizon}: {day} had {had} priced games in {last} "
+                f"and has {has} now -- refusing to overwrite a good snapshot "
+                f"with a worse one"
+            )
+
+
 async def odds(
     league: str,
     horizon: str = "today",
@@ -511,6 +597,10 @@ async def odds(
     odds_league = _ODDS_LEAGUES[league]
     start, end = _odds_window(odds_league, horizon, parsed_date)
     league_odds = [o async for o in odds_league.get_odds(start, end)]
+    key = f"odds/{league}/{parsed_date}/{parsed_time}-{horizon}.json"
+    await _check_odds_coverage(
+        _CONFIG.bucket, league, horizon, key, league_odds, parsed_date
+    )
     # The horizon is in the key because the three of them run on their own
     # schedules and would otherwise collide: the daily `near` pull and an
     # hourly `today` one that land in the same minute would write the same
@@ -520,11 +610,7 @@ async def odds(
     # It always was, but it used to amount to the same thing -- a snapshot
     # only ever held that day's games. Now that one can reach months ahead,
     # which game a price belongs to is on the record itself.
-    await save_data_to_s3(
-        _CONFIG.bucket,
-        f"odds/{league}/{parsed_date}/{parsed_time}-{horizon}.json",
-        json.dumps(league_odds).encode(),
-    )
+    await save_data_to_s3(_CONFIG.bucket, key, json.dumps(league_odds).encode())
     logger.info(
         "Saved %d odds for %s (%s horizon, %s..%s) read on %s at %s",
         len(league_odds),

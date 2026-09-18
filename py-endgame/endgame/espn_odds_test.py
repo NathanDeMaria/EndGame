@@ -8,7 +8,9 @@ import pytest
 from . import espn_odds as espn_odds_module
 from .espn_odds import (
     ESPN_DEFAULT_LIMIT,
+    MIN_EVENTS_TO_EXPECT_A_PRICE,
     ODDS_PAGE_LIMIT,
+    NoPricesFound,
     OddsTruncated,
     get_odds_range,
 )
@@ -291,3 +293,66 @@ async def test_the_cap_is_asked_for_on_every_request() -> None:
         ]
 
     assert seen == [ODDS_PAGE_LIMIT] * 21
+
+
+async def test_a_range_that_lists_games_and_prices_none_raises() -> None:
+    """
+    What a schema change looks like from in here.
+
+    `_get_odds_page` skips an event with no `odds` key, so if ESPN renames
+    or moves that key every event goes quiet at once and the pull writes an
+    empty snapshot -- which reads exactly like an off-season day.
+    """
+    unpriced = [
+        _event(str(i), "2026-09-03", priced=False)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    fake = _FakeEspn({"20260903": unpriced})
+
+    with _patch_espn(fake), pytest.raises(NoPricesFound, match="priced none"):
+        [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 9, 3), end=date(2026, 9, 3)
+            )
+        ]
+
+
+async def test_an_out_of_season_range_is_not_a_failure() -> None:
+    """
+    No games is the ordinary answer for most of the year, and has to stay
+    distinguishable from games-but-no-prices.
+    """
+    fake = _FakeEspn({}, default=[])
+
+    with _patch_espn(fake):
+        odds = [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 6, 1), end=date(2026, 6, 3)
+            )
+        ]
+
+    assert odds == []
+
+
+async def test_a_couple_of_unpriced_games_are_not_a_failure() -> None:
+    """
+    An exhibition or an all-star day comes back listed and unpriced, and a
+    scheduled pull should not die over it -- see the floor's comment.
+    """
+    few = [
+        _event(str(i), "2026-09-03", priced=False)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE - 1)
+    ]
+    fake = _FakeEspn({"20260903": few})
+
+    with _patch_espn(fake):
+        odds = [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 9, 3), end=date(2026, 9, 3)
+            )
+        ]
+
+    assert odds == []
