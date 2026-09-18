@@ -3,7 +3,8 @@ from datetime import date, timedelta
 from logging import getLogger
 from typing import AsyncIterator, Dict, List, Optional, Tuple, TypedDict
 
-from .date import chunk_date_range, format_dates_param
+from .async_tools import apply_in_parallel
+from .date import date_range
 from .web import RequestParameters, get
 
 logger = getLogger(__name__)
@@ -12,10 +13,11 @@ logger = getLogger(__name__)
 # How many events ESPN will hand back in one scoreboard response.
 #
 # It silently truncates rather than paging or erroring: a 7-day NCAABB range
-# asked for with limit=300 comes back with exactly 300 events, the last day
-# cut from 47 games to 4, and nothing in the response says so. So the limit
-# is asked for as high as it goes and `_get_odds_span` treats a full
-# response as truncated.
+# asked for with limit=300 came back with exactly 300 events, the last day
+# cut from 47 games to 4, and nothing in the response said so. A request is
+# one day now, which no schedule comes close to filling, but the limit is
+# still asked for high and a full response still warned about -- that is the
+# only signal there is that a response was cut.
 #
 # Above roughly 1000 ESPN stops honouring the parameter altogether and falls
 # back to its own default of 25, which would be a much quieter way to lose
@@ -23,12 +25,14 @@ logger = getLogger(__name__)
 # return the real 670, 1200 and up return 25. Hence 1000 and not more.
 ODDS_PAGE_LIMIT = 1000
 
-# How many days a single odds request covers before it's split up.
+# How many of a range's days are in flight at once.
 #
-# Sized for the densest league we ask about: NCAABB runs ~50 D1 games a day,
-# so 14 days is ~670 events, comfortably under the cap. Leagues that play
-# less can raise it and spend fewer requests -- see the `odds_chunk_days`
-# on `DailyLeague` and the per-league constants in `nfl` and `ncaafb`.
+# Days are independent requests now, so this is a politeness limit on ESPN
+# rather than the size of anything. `apply_in_parallel`'s own default.
+ODDS_MAX_PARALLEL_DAYS = 10
+
+# Retained only so the callers that still pass `chunk_days` keep type-
+# checking; nothing reads it. See `get_odds_range` for why.
 DEFAULT_ODDS_CHUNK_DAYS = 14
 
 
@@ -83,64 +87,36 @@ async def get_odds(url: str, parameters: RequestParameters) -> AsyncIterator[Odd
         yield odd
 
 
-async def _get_odds_span(
+async def _get_odds_day(
     url: str,
     base_parameters: Dict,
-    start: date,
-    end: date,
-) -> AsyncIterator[Odds]:
+    day: date,
+) -> List[Odds]:
     """
-    One span's odds, split in half and re-asked if ESPN truncated it.
+    One day's priced games.
 
-    `chunk_days` already keeps a span well under the cap for the league it
-    was sized for, so this is the backstop for the days that aren't
-    ordinary: a conference tournament, the first Saturday of March. Halving
-    rather than failing means an unexpectedly busy stretch costs a couple of
-    extra requests instead of silently dropping games.
+    A full response used to mean "ask for a narrower span", and this used to
+    halve the span and recurse. A day is the narrowest request ESPN still
+    accepts, so there is nowhere left to split: a full day is kept and
+    warned about, which is what the old single-day base case did anyway.
     """
     parameters = dict(base_parameters)
-    parameters["dates"] = format_dates_param(start, end)
+    parameters["dates"] = day.strftime("%Y%m%d")
     parameters["limit"] = ODDS_PAGE_LIMIT
 
     n_events, odds = await _get_odds_page(url, parameters)
-    if n_events < ODDS_PAGE_LIMIT:
-        for odd in odds:
-            yield odd
-        return
-
-    if start == end:
-        # Nothing left to split. One day with 1000+ events is beyond
-        # anything either sport has ever played, so this is much more
-        # likely to be ESPN changing its cap than a real schedule.
+    if n_events >= ODDS_PAGE_LIMIT:
+        # One day with 1000+ events is beyond anything any of these sports
+        # has played, so this is much more likely to be ESPN changing its
+        # cap than a real schedule.
         logger.warning(
             "%s returned a full %d events for the single day %s -- "
             "odds for that day are probably incomplete",
             url,
             ODDS_PAGE_LIMIT,
-            start,
+            day,
         )
-        for odd in odds:
-            yield odd
-        return
-
-    # The halves have to be disjoint: a midpoint that ends one and starts
-    # the other would report that day's games twice, and these are appended
-    # to a snapshot rather than keyed by game.
-    midpoint = start + timedelta(days=(end - start).days // 2)
-    logger.info(
-        "%s truncated %s..%s at %d events, splitting at %s",
-        url,
-        start,
-        end,
-        ODDS_PAGE_LIMIT,
-        midpoint,
-    )
-    async for odd in _get_odds_span(url, base_parameters, start, midpoint):
-        yield odd
-    async for odd in _get_odds_span(
-        url, base_parameters, midpoint + timedelta(days=1), end
-    ):
-        yield odd
+    return odds
 
 
 async def get_odds_range(
@@ -154,17 +130,29 @@ async def get_odds_range(
     """
     Every priced game between `start` and `end`, both inclusive.
 
-    ESPN's scoreboard takes a range of days as well as a single one, so a
-    fortnight of fixtures is one request rather than fourteen. That's the
-    whole reason odds can be pulled ahead at all: looking a week further out
-    costs nothing extra to ask for, where walking it a day at a time cost a
-    request per day and made a wide horizon too expensive to run hourly.
+    ESPN's scoreboard took a range of days until 2026-09-16, when it started
+    answering `dates=YYYYMMDD-YYYYMMDD` with a 400 -- any range, forward or
+    back, every league. A single `dates=YYYYMMDD` still works, so a range is
+    back to a request per day.
 
-    Long stretches are still split -- `chunk_days` at a time, and further if
-    a chunk comes back at the cap -- because a range that overflows one
-    response is truncated without saying so.
+    The days go out through `apply_in_parallel` rather than one after the
+    other, because a fortnight horizon is fourteen requests now and a whole
+    season is a few hundred. Ten at a time turns the season pull back into
+    seconds; the horizon ones were never slow enough to notice either way.
+
+    `chunk_days` is ignored. Its callers thread a tuned value through
+    (`DailyLeague.odds_chunk_days`, 60 for NHL and WNBA) and there is
+    nothing left for it to size, but dropping the parameter means touching
+    five call sites in the same change that unbreaks the jobs. It goes in
+    the follow-up, with `chunk_date_range` and `format_dates_param`.
     """
     base = dict(base_parameters or {})
-    for chunk_start, chunk_end in chunk_date_range(start, end, chunk_days):
-        async for odd in _get_odds_span(url, base, chunk_start, chunk_end):
+    # `date_range` stops before its end; this range includes it.
+    days = date_range(start, end + timedelta(days=1))
+    async for day_odds in apply_in_parallel(
+        _get_odds_day,
+        [(url, base, day) for day in days],
+        max_parallel=ODDS_MAX_PARALLEL_DAYS,
+    ):
+        for odd in day_odds:
             yield odd
