@@ -27,9 +27,7 @@ def _patch_s3(keys: list, previous: list):
     async def fake_read(bucket, key):
         return json.dumps(previous).encode()
 
-    return patch.multiple(
-        cli_module, list_all_keys=fake_list, read_bytes=fake_read
-    )
+    return patch.multiple(cli_module, list_all_keys=fake_list, read_bytes=fake_read)
 
 
 async def test_a_future_date_losing_most_of_its_games_raises() -> None:
@@ -41,16 +39,24 @@ async def test_a_future_date_losing_most_of_its_games_raises() -> None:
     with _patch_s3([_OLD_KEY], _records("2026-09-19", 40)):
         with pytest.raises(OddsCoverageDropped, match="2026-09-19"):
             await _check_odds_coverage(
-                _BUCKET, "ncaafb", "near", _NEW_KEY,
-                _records("2026-09-19", 9), _TODAY,
+                _BUCKET,
+                "ncaafb",
+                "near",
+                _NEW_KEY,
+                _records("2026-09-19", 9),
+                _TODAY,
             )
 
 
 async def test_a_future_date_holding_steady_passes() -> None:
     with _patch_s3([_OLD_KEY], _records("2026-09-19", 40)):
         await _check_odds_coverage(
-            _BUCKET, "ncaafb", "near", _NEW_KEY,
-            _records("2026-09-19", 39), _TODAY,
+            _BUCKET,
+            "ncaafb",
+            "near",
+            _NEW_KEY,
+            _records("2026-09-19", 39),
+            _TODAY,
         )
 
 
@@ -60,24 +66,18 @@ async def test_a_past_date_shedding_games_is_fine() -> None:
     emptying out is what working looks like.
     """
     with _patch_s3([_OLD_KEY], _records("2026-09-05", 40)):
-        await _check_odds_coverage(
-            _BUCKET, "ncaafb", "near", _NEW_KEY, [], _TODAY
-        )
+        await _check_odds_coverage(_BUCKET, "ncaafb", "near", _NEW_KEY, [], _TODAY)
 
 
 async def test_a_small_date_is_not_evidence() -> None:
     """2 -> 0 is a book changing its mind, not a pipeline breaking."""
     with _patch_s3([_OLD_KEY], _records("2026-09-19", 2)):
-        await _check_odds_coverage(
-            _BUCKET, "ncaafb", "near", _NEW_KEY, [], _TODAY
-        )
+        await _check_odds_coverage(_BUCKET, "ncaafb", "near", _NEW_KEY, [], _TODAY)
 
 
 async def test_the_first_pull_of_a_horizon_has_nothing_to_compare() -> None:
     with _patch_s3([], []):
-        await _check_odds_coverage(
-            _BUCKET, "ncaafb", "season", _NEW_KEY, [], _TODAY
-        )
+        await _check_odds_coverage(_BUCKET, "ncaafb", "season", _NEW_KEY, [], _TODAY)
 
 
 async def test_only_the_same_horizon_is_compared() -> None:
@@ -87,6 +87,4 @@ async def test_only_the_same_horizon_is_compared() -> None:
     """
     other = "odds/ncaafb/2026-09-11/09-32-today.json"
     with _patch_s3([other], _records("2026-09-19", 40)):
-        await _check_odds_coverage(
-            _BUCKET, "ncaafb", "near", _NEW_KEY, [], _TODAY
-        )
+        await _check_odds_coverage(_BUCKET, "ncaafb", "near", _NEW_KEY, [], _TODAY)
