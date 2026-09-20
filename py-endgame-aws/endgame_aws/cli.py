@@ -513,11 +513,11 @@ class OddsCoverageDropped(Exception):
     look like "today was quiet" in a snapshot. What they cannot look like is
     a game date *losing* games it already had.
 
-    Compared per game date and only for dates still in the future, which is
-    what makes it usable on a real schedule: a league that plays Saturdays
-    has an empty Tuesday every week, and any check on the size of a pull
-    alone would have to know that. A date that already had 40 priced games
-    and now has 9 needs no calendar to be alarming.
+    Compared per game date and only over games that haven't kicked off yet,
+    which is what makes it usable on a real schedule: a league that plays
+    Saturdays has an empty Tuesday every week, and any check on the size of
+    a pull alone would have to know that. A date that already had 40 priced
+    games and now has 9 needs no calendar to be alarming.
     """
 
 
@@ -527,10 +527,19 @@ async def _check_odds_coverage(
     horizon: str,
     new_key: str,
     league_odds: list,
-    today: date,
+    as_of: datetime,
 ) -> None:
     """
     Compare a pull against the last one of the same horizon, before it lands.
+
+    `as_of` is when this pull was read, timezone-aware. Games that had
+    already kicked off by then are left out of both sides: ESPN drops a
+    game's price at kickoff, so an evening slate thins out hour by hour
+    while the pull is working fine. Filtering by *game* rather than by
+    calendar date is what handles that -- a Saturday's 7pm, 8pm and 9pm
+    kickoffs share a UTC date with each other and not with the Chicago
+    afternoon, so any date-level cutoff is looking at the wrong clock for
+    someone.
 
     Checked before the write rather than after, so a pull that looks broken
     leaves the previous snapshot as the newest one instead of burying it
@@ -561,13 +570,17 @@ async def _check_odds_coverage(
         return
 
     def by_date(records: list) -> Counter:
-        return Counter(str(r["date"])[:10] for r in records)
+        # ESPN's event date is an ISO instant (`2026-09-20T00:00Z`); bucket
+        # on its UTC calendar day, the same on both sides.
+        return Counter(
+            str(r["date"])[:10]
+            for r in records
+            if datetime.fromisoformat(r["date"]) > as_of
+        )
 
     was, now = by_date(before), by_date(league_odds)
     for day, had in sorted(was.items()):
-        if day <= today.isoformat() or had < _ODDS_COVERAGE_MIN_GAMES:
-            # Past dates legitimately shed games: once one is final ESPN
-            # stops carrying a price for it.
+        if had < _ODDS_COVERAGE_MIN_GAMES:
             continue
         has = now.get(day, 0)
         if has < had * _ODDS_COVERAGE_FLOOR:
@@ -598,9 +611,14 @@ async def odds(
     start, end = _odds_window(odds_league, horizon, parsed_date)
     league_odds = [o async for o in odds_league.get_odds(start, end)]
     key = f"odds/{league}/{parsed_date}/{parsed_time}-{horizon}.json"
-    await _check_odds_coverage(
-        _CONFIG.bucket, league, horizon, key, league_odds, parsed_date
+    # The read time the key records, not the wall clock, so a backfilled
+    # `--day --time` pull is judged as of the moment it claims to be.
+    as_of = datetime.combine(
+        parsed_date,
+        datetime.strptime(parsed_time, "%H-%M").time(),
+        tzinfo=ZoneInfo("America/Chicago"),
     )
+    await _check_odds_coverage(_CONFIG.bucket, league, horizon, key, league_odds, as_of)
     # The horizon is in the key because the three of them run on their own
     # schedules and would otherwise collide: the daily `near` pull and an
     # hourly `today` one that land in the same minute would write the same
