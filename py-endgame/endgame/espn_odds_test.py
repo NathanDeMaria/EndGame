@@ -18,8 +18,17 @@ from .espn_odds import (
 _URL = "https://example.test/scoreboard"
 
 
-def _event(competition_id: str, day: str, priced: bool = True) -> dict:
-    competition: dict = {"id": competition_id}
+def _event(
+    competition_id: str, day: str, priced: bool = True, state: str = "pre"
+) -> dict:
+    """
+    One scoreboard event. `state` is ESPN's `status.type.state`: `pre`
+    before kickoff, `in` during, `post` after.
+    """
+    competition: dict = {
+        "id": competition_id,
+        "status": {"type": {"state": state}},
+    }
     if priced:
         competition["odds"] = [{"details": "HOME -3.5"}]
     return {"date": f"{day}T23:00Z", "competitions": [competition]}
@@ -356,3 +365,74 @@ async def test_a_couple_of_unpriced_games_are_not_a_failure() -> None:
         ]
 
     assert odds == []
+
+
+async def test_a_day_whose_games_have_all_kicked_off_is_not_a_failure() -> None:
+    """
+    An NFL Sunday at 9pm: fourteen events listed, every one under way or
+    over, and ESPN has taken every price down at kickoff. That is the day
+    going to plan, and the hourly pull after the last kickoff has to see it
+    that way rather than as the schema moving.
+    """
+    played = [
+        _event(str(i), "2026-09-20", priced=False, state="post")
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE + 3)
+    ] + [_event("snf", "2026-09-20", priced=False, state="in")]
+    fake = _FakeEspn({"20260920": played})
+
+    with _patch_espn(fake):
+        odds = [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 9, 20), end=date(2026, 9, 20)
+            )
+        ]
+
+    assert odds == []
+
+
+async def test_unstarted_games_with_no_price_still_raise() -> None:
+    """
+    Kickoffs excuse the games that kicked off, not the ones that didn't: a
+    slate that is mostly over but still lists a floor's worth of unpriced
+    games yet to start is the schema alarm, same as before.
+    """
+    played = [
+        _event(f"done-{i}", "2026-09-20", priced=False, state="post")
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    waiting = [
+        _event(f"pre-{i}", "2026-09-20", priced=False)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    fake = _FakeEspn({"20260920": played + waiting})
+
+    with _patch_espn(fake), pytest.raises(NoPricesFound, match="10 of them not yet"):
+        [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 9, 20), end=date(2026, 9, 20)
+            )
+        ]
+
+
+async def test_an_event_that_does_not_say_its_status_counts_as_unstarted() -> None:
+    """
+    The guard exists to notice ESPN moving keys, so ESPN moving the status
+    key must make it stricter, not switch it off.
+    """
+    unpriced = [
+        _event(str(i), "2026-09-03", priced=False)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    for event in unpriced:
+        del event["competitions"][0]["status"]
+    fake = _FakeEspn({"20260903": unpriced})
+
+    with _patch_espn(fake), pytest.raises(NoPricesFound, match="priced none"):
+        [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 9, 3), end=date(2026, 9, 3)
+            )
+        ]

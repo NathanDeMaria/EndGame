@@ -1,7 +1,7 @@
 import json
 from datetime import date, timedelta
 from logging import getLogger
-from typing import AsyncIterator, Dict, List, NamedTuple, Optional, Tuple, TypedDict
+from typing import AsyncIterator, Dict, List, NamedTuple, Optional, TypedDict
 
 from .async_tools import apply_in_parallel
 from .date import date_range
@@ -43,6 +43,11 @@ ESPN_DEFAULT_LIMIT = 25
 # counts as evidence of anything. A stray exhibition or an all-star day can
 # come back listed and unpriced, and failing a scheduled pull over two
 # events would be noise; a whole range of them is a different claim.
+#
+# Only events that haven't kicked off count towards it. ESPN drops a game's
+# price at kickoff, so a game day's scoreboard is full of listed, unpriced
+# events by the evening, and a pull that runs after the last kickoff sees
+# every event unpriced for the most ordinary reason there is.
 MIN_EVENTS_TO_EXPECT_A_PRICE = 10
 
 
@@ -66,6 +71,12 @@ class NoPricesFound(OddsProblem):
     season. A range that saw real events and priced none of them is the
     cheapest place to catch it: no second request, no second source, just
     the two numbers the parse already has.
+
+    Games that have kicked off are left out of the count. ESPN takes the
+    price down at kickoff, so by 9pm on an NFL Sunday the scoreboard lists
+    fourteen events and prices none of them, and that is the day going as
+    planned, not the schema moving. An unstarted game with no price is the
+    claim worth raising over.
     """
 
 
@@ -104,23 +115,51 @@ class Odds(TypedDict):
     odds: dict
 
 
-async def _get_odds_page(
-    url: str, parameters: RequestParameters
-) -> Tuple[int, List[Odds]]:
-    """
-    One scoreboard request, as (how many events came back, the priced ones).
+class _OddsPage(NamedTuple):
+    """One scoreboard response's parse: what ESPN listed, and the priced ones.
 
-    The count is every event in the response, not just the ones carrying
-    odds, because it's what says whether ESPN truncated: a response is only
-    trustworthy if it came back under `ODDS_PAGE_LIMIT`.
+    The counts ride along because the callers need them and the page is the
+    only place they exist -- an unpriced event leaves nothing behind in
+    `odds` to be counted later.
+    """
+
+    # Every event in the response, priced or not. What says whether ESPN
+    # truncated: a response is only trustworthy if it came back under
+    # `ODDS_PAGE_LIMIT`.
+    events: int
+    # The events that hadn't kicked off yet, by ESPN's own status. The only
+    # ones a missing price says anything about; see `NoPricesFound`.
+    unstarted: int
+    odds: List[Odds]
+
+
+def _has_kicked_off(competition: dict) -> bool:
+    """
+    Whether ESPN says the game is under way or over.
+
+    `status.type.state` is `pre`, `in` or `post`. A competition that doesn't
+    say counts as unstarted, so if ESPN moves *that* key the price guard
+    gets stricter rather than quieter -- it is the guard against keys moving,
+    and shouldn't be disarmed by one.
+    """
+    state = (competition.get("status") or {}).get("type", {}).get("state")
+    return state in ("in", "post")
+
+
+async def _get_odds_page(url: str, parameters: RequestParameters) -> _OddsPage:
+    """
+    One scoreboard request, parsed.
     """
     content = await get(url, parameters)
     tree = json.loads(content.data)
     events = tree.get("events") or []
+    unstarted = 0
     odds = []
     for event in events:
         assert len(event["competitions"]) == 1
         competition = event["competitions"][0]
+        if not _has_kicked_off(competition):
+            unstarted += 1
         event_odds = competition.get("odds")
         if not event_odds:
             continue
@@ -131,35 +170,23 @@ async def _get_odds_page(
                 odds=event_odds,
             )
         )
-    return len(events), odds
+    return _OddsPage(len(events), unstarted, odds)
 
 
 async def get_odds(url: str, parameters: RequestParameters) -> AsyncIterator[Odds]:
     """
     The odds on whatever one scoreboard request comes back with.
     """
-    _, odds = await _get_odds_page(url, parameters)
-    for odd in odds:
+    page = await _get_odds_page(url, parameters)
+    for odd in page.odds:
         yield odd
-
-
-class _DayOdds(NamedTuple):
-    """One day's parse: how many events ESPN listed, and the priced ones.
-
-    The event count rides along because `get_odds_range` needs it and the
-    day is the only place it exists -- an unpriced event leaves nothing
-    behind in `odds` to be counted later.
-    """
-
-    events: int
-    odds: List[Odds]
 
 
 async def _get_odds_day(
     url: str,
     base_parameters: Dict,
     day: date,
-) -> _DayOdds:
+) -> _OddsPage:
     """
     One day's priced games.
 
@@ -186,29 +213,29 @@ async def _get_odds_day(
     parameters["dates"] = day.strftime("%Y%m%d")
     parameters["limit"] = ODDS_PAGE_LIMIT
 
-    n_events, odds = await _get_odds_page(url, parameters)
-    if n_events >= ODDS_PAGE_LIMIT:
+    page = await _get_odds_page(url, parameters)
+    if page.events >= ODDS_PAGE_LIMIT:
         raise OddsTruncated(
-            f"{url} returned a full {n_events} events for {day} at "
+            f"{url} returned a full {page.events} events for {day} at "
             f"limit={ODDS_PAGE_LIMIT}; the rest of that day was dropped"
         )
-    if n_events == ESPN_DEFAULT_LIMIT:
+    if page.events == ESPN_DEFAULT_LIMIT:
         # One extra request, only on the days that are ambiguous. A real
         # 25-event day answers the same both times and costs nothing but
         # the round trip.
         probe = dict(parameters)
         probe["limit"] = ESPN_DEFAULT_LIMIT * 2
-        probe_events, probe_odds = await _get_odds_page(url, probe)
-        if probe_events > n_events:
+        probe_page = await _get_odds_page(url, probe)
+        if probe_page.events > page.events:
             raise OddsTruncated(
-                f"{url} returned {n_events} events for {day} at "
-                f"limit={ODDS_PAGE_LIMIT} but {probe_events} at "
+                f"{url} returned {page.events} events for {day} at "
+                f"limit={ODDS_PAGE_LIMIT} but {probe_page.events} at "
                 f"limit={probe['limit']}: ESPN is ignoring the limit and "
                 f"serving its default of {ESPN_DEFAULT_LIMIT}"
             )
         # The smaller ask is the honoured one, so prefer what it returned.
-        return _DayOdds(probe_events, probe_odds)
-    return _DayOdds(n_events, odds)
+        return probe_page
+    return page
 
 
 async def get_odds_range(
@@ -242,6 +269,7 @@ async def get_odds_range(
     # `date_range` stops before its end; this range includes it.
     days = date_range(start, end + timedelta(days=1))
     seen_events = 0
+    seen_unstarted = 0
     seen_priced = 0
     async for day_odds in apply_in_parallel(
         _get_odds_day,
@@ -249,6 +277,7 @@ async def get_odds_range(
         max_parallel=ODDS_MAX_PARALLEL_DAYS,
     ):
         seen_events += day_odds.events
+        seen_unstarted += day_odds.unstarted
         seen_priced += len(day_odds.odds)
         for odd in day_odds.odds:
             yield odd
@@ -256,9 +285,12 @@ async def get_odds_range(
     # Games listed, none priced: see `NoPricesFound`. Checked over the range
     # rather than per day because a single unpriced day is ordinary -- a
     # season horizon reaches months past where any book has posted -- and a
-    # range where nothing at all is priced is not.
-    if seen_events >= MIN_EVENTS_TO_EXPECT_A_PRICE and seen_priced == 0:
+    # range where nothing at all is priced is not. Only the games that
+    # haven't kicked off count as listed: the ones that have are unpriced by
+    # design, and a pull after the last kickoff sees nothing else.
+    if seen_unstarted >= MIN_EVENTS_TO_EXPECT_A_PRICE and seen_priced == 0:
         raise NoPricesFound(
-            f"{url} listed {seen_events} events between {start} and {end} "
-            f"and priced none of them; the odds are missing or have moved"
+            f"{url} listed {seen_events} events between {start} and {end}, "
+            f"{seen_unstarted} of them not yet kicked off, and priced none of "
+            f"them; the odds are missing or have moved"
         )
