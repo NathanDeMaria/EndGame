@@ -77,6 +77,11 @@ class NoPricesFound(OddsProblem):
     fourteen events and prices none of them, and that is the day going as
     planned, not the schema moving. An unstarted game with no price is the
     claim worth raising over.
+
+    So are preseason games. Books don't price them, and ESPN lists a full
+    slate of them unpriced for the fortnight before every NHL and NFL
+    season -- ten on an NHL night, enough to trip the guard every hour
+    until puck drop.
     """
 
 
@@ -127,8 +132,9 @@ class _OddsPage(NamedTuple):
     # truncated: a response is only trustworthy if it came back under
     # `ODDS_PAGE_LIMIT`.
     events: int
-    # The events that hadn't kicked off yet, by ESPN's own status. The only
-    # ones a missing price says anything about; see `NoPricesFound`.
+    # The events that hadn't kicked off yet, by ESPN's own status, leaving
+    # out the preseason. The only ones a missing price says anything about;
+    # see `NoPricesFound`.
     unstarted: int
     odds: List[Odds]
 
@@ -146,6 +152,21 @@ def _has_kicked_off(competition: dict) -> bool:
     return state in ("in", "post")
 
 
+# ESPN's `season.type` for the preseason; 2 is the regular season, 3 the
+# postseason.
+PRESEASON = 1
+
+
+def _is_preseason(event: dict) -> bool:
+    """
+    Whether ESPN files the event under the preseason.
+
+    Only an explicit preseason excuses a game, so an event that doesn't say
+    counts, for the same reason as in `_has_kicked_off`.
+    """
+    return (event.get("season") or {}).get("type") == PRESEASON
+
+
 async def _get_odds_page(url: str, parameters: RequestParameters) -> _OddsPage:
     """
     One scoreboard request, parsed.
@@ -158,7 +179,7 @@ async def _get_odds_page(url: str, parameters: RequestParameters) -> _OddsPage:
     for event in events:
         assert len(event["competitions"]) == 1
         competition = event["competitions"][0]
-        if not _has_kicked_off(competition):
+        if not _has_kicked_off(competition) and not _is_preseason(event):
             unstarted += 1
         event_odds = competition.get("odds")
         if not event_odds:
@@ -287,10 +308,12 @@ async def get_odds_range(
     # season horizon reaches months past where any book has posted -- and a
     # range where nothing at all is priced is not. Only the games that
     # haven't kicked off count as listed: the ones that have are unpriced by
-    # design, and a pull after the last kickoff sees nothing else.
+    # design, and a pull after the last kickoff sees nothing else. Nor does
+    # the preseason, which no book prices.
     if seen_unstarted >= MIN_EVENTS_TO_EXPECT_A_PRICE and seen_priced == 0:
         raise NoPricesFound(
             f"{url} listed {seen_events} events between {start} and {end}, "
-            f"{seen_unstarted} of them not yet kicked off, and priced none of "
+            f"{seen_unstarted} of them not yet kicked off outside the preseason, "
+            f"and priced none of "
             f"them; the odds are missing or have moved"
         )
