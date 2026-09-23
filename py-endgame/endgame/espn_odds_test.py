@@ -19,11 +19,16 @@ _URL = "https://example.test/scoreboard"
 
 
 def _event(
-    competition_id: str, day: str, priced: bool = True, state: str = "pre"
+    competition_id: str,
+    day: str,
+    priced: bool = True,
+    state: str = "pre",
+    season_type: Optional[int] = None,
 ) -> dict:
     """
     One scoreboard event. `state` is ESPN's `status.type.state`: `pre`
-    before kickoff, `in` during, `post` after.
+    before kickoff, `in` during, `post` after. `season_type` is ESPN's
+    `season.type`, left off the event when None.
     """
     competition: dict = {
         "id": competition_id,
@@ -31,7 +36,10 @@ def _event(
     }
     if priced:
         competition["odds"] = [{"details": "HOME -3.5"}]
-    return {"date": f"{day}T23:00Z", "competitions": [competition]}
+    event: dict = {"date": f"{day}T23:00Z", "competitions": [competition]}
+    if season_type is not None:
+        event["season"] = {"type": season_type, "slug": "preseason"}
+    return event
 
 
 class _FakeContent:
@@ -434,5 +442,47 @@ async def test_an_event_that_does_not_say_its_status_counts_as_unstarted() -> No
             o
             async for o in get_odds_range(
                 _URL, start=date(2026, 9, 3), end=date(2026, 9, 3)
+            )
+        ]
+
+
+async def test_an_unpriced_preseason_slate_is_not_a_failure() -> None:
+    """
+    An NHL preseason night: ten games listed, none started, and no book
+    prices an exhibition. That is ordinary, not the schema moving.
+    """
+    preseason = [
+        _event(str(i), "2026-09-22", priced=False, season_type=1)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    fake = _FakeEspn({"20260922": preseason})
+
+    with _patch_espn(fake):
+        odds = [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 9, 22), end=date(2026, 9, 22)
+            )
+        ]
+
+    assert odds == []
+
+
+async def test_unpriced_regular_season_games_still_raise() -> None:
+    """
+    The preseason excuses only itself: a regular-season slate with no prices
+    is the schema alarm whether or not ESPN says which season it is.
+    """
+    unpriced = [
+        _event(str(i), "2026-10-08", priced=False, season_type=2)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    fake = _FakeEspn({"20261008": unpriced})
+
+    with _patch_espn(fake), pytest.raises(NoPricesFound, match="priced none"):
+        [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 10, 8), end=date(2026, 10, 8)
             )
         ]
