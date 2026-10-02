@@ -10,6 +10,11 @@ locals {
   job_queue_arn  = data.terraform_remote_state.batch.outputs.job_queue_arn
   s3_bucket_name = data.terraform_remote_state.batch.outputs.bucket
 
+  # The ECR repository lives in the same stack (its `repos` module), so the
+  # image comes from there too, rather than from an IMAGE_URL secret that had
+  # to be kept equal to it by hand.
+  image = "${data.terraform_remote_state.batch.outputs.repo_urls[var.ecr_repository_name]}:${var.image_tag}"
+
   # ncaabb's `box_scores` command also pulls possessions/box scores, so it
   # stays its own command instead of going through the generic `games`
   # command that the rest use.
@@ -99,7 +104,7 @@ module "daily_games" {
   for_each = local.games_jobs
 
   job_name            = "daily-games-${each.key}"
-  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  image               = local.image
   command             = each.value
   execution_role_arn  = aws_iam_role.batch_execution_role.arn
   job_role_arn        = aws_iam_role.batch_job_role.arn
@@ -130,7 +135,7 @@ module "football" {
     },
   ]
 
-  image              = "${var.ecr_repository_url}:${var.image_tag}"
+  image              = local.image
   execution_role_arn = aws_iam_role.batch_execution_role.arn
   job_role_arn       = aws_iam_role.batch_job_role.arn
   scheduler_role_arn = aws_iam_role.scheduler_role.arn
@@ -162,7 +167,7 @@ module "odds" {
   for_each = local.odds_jobs
 
   job_name            = "odds-${each.key}"
-  image               = "${var.ecr_repository_url}:${var.image_tag}"
+  image               = local.image
   command             = ["odds", each.value.league, "--horizon", each.value.horizon]
   execution_role_arn  = aws_iam_role.batch_execution_role.arn
   job_role_arn        = aws_iam_role.batch_job_role.arn
@@ -256,9 +261,9 @@ resource "aws_iam_role_policy_attachment" "batch_job_s3_policy_attach" {
 data "terraform_remote_state" "batch" {
   backend = "s3"
   config = {
-    bucket = "nathan-terraform"
-    key    = "batch-state"
-    region = "us-east-2"
+    bucket = var.shared_infra_state.bucket
+    key    = var.shared_infra_state.key
+    region = var.shared_infra_state.region
   }
 }
 

@@ -3,9 +3,31 @@ variable "aws_region" {
   type        = string
 }
 
-variable "ecr_repository_url" {
-  description = "The URL of the ECR repository"
+variable "ecr_repository_name" {
+  description = <<-EOT
+    The ECR repository the jobs run from and the image workflow pushes to.
+
+    Owned by aws-batch-optimization's `repos` module, not by this stack --
+    named here so the job definitions can look its URL up in that stack's
+    state, and so the image role's policy can be scoped to it rather than to
+    every repository in the account.
+  EOT
   type        = string
+  default     = "endgame"
+}
+
+variable "shared_infra_state" {
+  description = "Where aws-batch-optimization keeps its state, read for the queue, the bucket and the ECR repository"
+  type = object({
+    bucket = string
+    key    = string
+    region = string
+  })
+  default = {
+    bucket = "nathan-terraform"
+    key    = "batch-state"
+    region = "us-east-2"
+  }
 }
 
 variable "image_tag" {
