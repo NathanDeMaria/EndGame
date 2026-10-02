@@ -78,12 +78,12 @@ jobs:
 
     env:
       AWS_REGION: us-east-2
-      # Where the shared stack keeps its state. The push reads the bucket name
-      # and the ECR URL out of it rather than carrying either as a secret.
-      # Matches the default of `shared_infra_state` in jobs/variables.tf; if
-      # that ever moves, both move.
-      SHARED_STATE_BUCKET: nathan-terraform
-      SHARED_STATE_KEY: batch-state
+      # The SSM parameter the shared stack publishes its non-sensitive outputs
+      # to. The push reads the bucket name and the ECR URL out of it rather
+      # than carrying either as a secret. Matches the default of
+      # `shared_outputs_parameter` in jobs/variables.tf, which is also what
+      # scopes endgame-ci-image's read to it; if that ever moves, both move.
+      SHARED_OUTPUTS_PARAMETER: /batch/shared-outputs
       PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
     steps:
@@ -120,21 +120,21 @@ jobs:
     # (it's baked into the image -- see ../.dockerignore) and what the
     # Makefile reads for the ECR URL. It used to be the BATCH_CORE_CONFIG
     # secret, a pasted `terraform output -json`; it's derived from the shared
-    # stack's state instead, so there is nothing to re-paste when that stack
-    # changes.
+    # stack's published outputs instead, so there is nothing to re-paste when
+    # that stack changes.
     #
-    # Filtered to the keys this repo reads, which also keeps `ecr_iam_users`
-    # out of the image: that output holds live access keys. A missing key
-    # fails here, rather than at import time in a Batch job.
-    - name: Build config.json from the shared terraform state
+    # Filtered to the keys this repo reads, and re-wrapped as `{"value": ...}`
+    # so it keeps the `terraform output -json` shape both readers expect. A
+    # missing key fails here, rather than at import time in a Batch job.
+    - name: Build config.json from the shared stack's outputs
       if: env.PUSH == 'true' && vars.AWS_IMAGE_ROLE_ARN != ''
       working-directory: py-endgame-aws
       run: |
-        aws s3 cp "s3://${SHARED_STATE_BUCKET}/${SHARED_STATE_KEY}" - \
-          | jq --exit-status '{
-              bucket: .outputs.bucket,
-              repo_urls: .outputs.repo_urls,
-            } | if any(.[]; . == null) then error("missing output") else . end' \
+        aws ssm get-parameter --name "$SHARED_OUTPUTS_PARAMETER" \
+            --query Parameter.Value --output text \
+          | jq --exit-status '{bucket, repo_urls}
+              | if any(.[]; . == null) then error("missing output")
+                else map_values({value: .}) end' \
           > config.json
         echo "IMAGE_URL=$(jq -r .repo_urls.value.endgame config.json)" >> "$GITHUB_ENV"
 

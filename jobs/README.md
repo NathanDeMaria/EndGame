@@ -4,9 +4,9 @@ Terraform for the scheduled pulls: a Batch job definition and an EventBridge
 schedule per league, the IAM they need, and SNS failure notifications.
 
 The job queue, the data bucket and the `endgame` ECR repository aren't declared here. They belong to the
-shared Batch stack ([aws-batch-optimization][abo]) and are read out of its
-state with a `terraform_remote_state` data source, so a rename over there fails
-this plan rather than an 8am job.
+shared Batch stack ([aws-batch-optimization][abo]) and are read from the
+outputs it publishes to the SSM parameter `/batch/shared-outputs`, so a rename
+over there fails this plan rather than an 8am job.
 
 [abo]: https://github.com/NathanDeMaria/aws-batch-optimization/tree/main/infra
 
@@ -67,8 +67,9 @@ that, `lint` is the only job that runs; `plan` and `apply` skip rather than
 fail red.
 
 The only **secret** CI needs is `NOTIFICATION_EMAIL`. The ECR URL and the
-bucket come from the shared stack's state — terraform reads it with
-`terraform_remote_state`, and the image push reads it with `aws s3 cp` — so
+bucket come from the shared stack's published outputs — terraform reads the
+parameter with an `aws_ssm_parameter` data source, and the image push with
+`aws ssm get-parameter`, which is all `endgame-ci-image` may read — so
 `IMAGE_URL`, `BATCH_CORE_CONFIG`, `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY` are no longer read by anything and can be deleted.
 
