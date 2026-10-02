@@ -3,17 +3,18 @@ provider "aws" {
 }
 
 locals {
-  # The account's Batch stack owns the job queue and the data bucket, and its
-  # state is the source of truth for both. Reading them from there rather than
-  # re-declaring them here means there's nothing to keep in sync by hand, and
-  # a rename over there fails this plan instead of a 8am job.
-  job_queue_arn  = data.terraform_remote_state.batch.outputs.job_queue_arn
-  s3_bucket_name = data.terraform_remote_state.batch.outputs.bucket
+  # The account's Batch stack owns the job queue and the data bucket, and
+  # publishes both (see the data lookup below). Reading them from there rather
+  # than re-declaring them here means there's nothing to keep in sync by hand,
+  # and a rename over there fails this plan instead of a 8am job.
+  batch          = jsondecode(data.aws_ssm_parameter.batch.insecure_value)
+  job_queue_arn  = local.batch.job_queue_arn
+  s3_bucket_name = local.batch.bucket
 
   # The ECR repository lives in the same stack (its `repos` module), so the
   # image comes from there too, rather than from an IMAGE_URL secret that had
   # to be kept equal to it by hand.
-  image = "${data.terraform_remote_state.batch.outputs.repo_urls[var.ecr_repository_name]}:${var.image_tag}"
+  image = "${local.batch.repo_urls[var.ecr_repository_name]}:${var.image_tag}"
 
   # ncaabb's `box_scores` command also pulls possessions/box scores, so it
   # stays its own command instead of going through the generic `games`
@@ -255,16 +256,12 @@ resource "aws_iam_role_policy_attachment" "batch_job_s3_policy_attach" {
 # ------------------------------------------------------------------------------
 # Data Lookups
 # ------------------------------------------------------------------------------
-# `batch-state` is the aws-batch-optimization stack, in this same account and
-# state bucket. It already exports the queue and bucket, so this repo doesn't
-# take them as variables at all.
-data "terraform_remote_state" "batch" {
-  backend = "s3"
-  config = {
-    bucket = var.shared_infra_state.bucket
-    key    = var.shared_infra_state.key
-    region = var.shared_infra_state.region
-  }
+# aws-batch-optimization, in this same account, publishes its non-sensitive
+# outputs as one JSON parameter (its infra/ssm.tf) -- the queue, the bucket and
+# the ECR repository URLs among them -- so this repo doesn't take them as
+# variables at all, and doesn't need to know where that stack keeps its state.
+data "aws_ssm_parameter" "batch" {
+  name = var.shared_outputs_parameter
 }
 
 data "aws_caller_identity" "current" {}

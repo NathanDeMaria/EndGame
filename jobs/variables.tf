@@ -16,18 +16,10 @@ variable "ecr_repository_name" {
   default     = "endgame"
 }
 
-variable "shared_infra_state" {
-  description = "Where aws-batch-optimization keeps its state, read for the queue, the bucket and the ECR repository"
-  type = object({
-    bucket = string
-    key    = string
-    region = string
-  })
-  default = {
-    bucket = "nathan-terraform"
-    key    = "batch-state"
-    region = "us-east-2"
-  }
+variable "shared_outputs_parameter" {
+  description = "SSM parameter aws-batch-optimization publishes its outputs to, read for the queue, the bucket and the ECR repository"
+  type        = string
+  default     = "/batch/shared-outputs"
 }
 
 variable "image_tag" {
