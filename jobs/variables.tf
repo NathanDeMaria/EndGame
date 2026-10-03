@@ -71,11 +71,6 @@ variable "schedule_timezone" {
   default     = "America/Chicago"
 }
 
-variable "notification_email" {
-  description = "Email address to receive notifications when the job fails"
-  type        = string
-}
-
 # ------------------------------------------------------------------------------
 # CI OIDC roles (oidc.tf)
 # ------------------------------------------------------------------------------

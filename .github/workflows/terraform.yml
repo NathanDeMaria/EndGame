@@ -29,9 +29,9 @@ env:
   # The tfvars file `make plan`/`make apply` reads locally is gitignored, so
   # CI supplies the remaining values as TF_VAR_*. The job queue and the data
   # bucket aren't here, and neither is the ECR repository URL: all three come
-  # from the Batch stack's remote state.
+  # from the Batch stack's published outputs. Nor is a failure email: that
+  # stack sends it, for every app on the queue.
   TF_VAR_aws_region: us-east-2
-  TF_VAR_notification_email: ${{ secrets.NOTIFICATION_EMAIL }}
 
 jobs:
   # No credentials and no backend, so this runs everywhere -- including before

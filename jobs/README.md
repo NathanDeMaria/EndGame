@@ -1,7 +1,7 @@
 # jobs
 
 Terraform for the scheduled pulls: a Batch job definition and an EventBridge
-schedule per league, the IAM they need, and SNS failure notifications.
+schedule per league, and the IAM they need.
 
 The job queue, the data bucket and the `endgame` ECR repository aren't declared here. They belong to the
 shared Batch stack ([aws-batch-optimization][abo]) and are read from the
@@ -66,12 +66,13 @@ workflow compares them against `''` to stay dormant until they're set. Before
 that, `lint` is the only job that runs; `plan` and `apply` skip rather than
 fail red.
 
-The only **secret** CI needs is `NOTIFICATION_EMAIL`. The ECR URL and the
+CI needs no **secrets**. Failure email for a failed job comes from the shared
+stack, which watches the whole queue; this repo only routes its Step Functions
+chain failures to that stack's topic (`failure_topic_arn`). The ECR URL and the
 bucket come from the shared stack's published outputs — terraform reads the
 parameter with an `aws_ssm_parameter` data source, and the image push with
 `aws ssm get-parameter`, which is all `endgame-ci-image` may read — so
-`IMAGE_URL`, `BATCH_CORE_CONFIG`, `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY` are no longer read by anything and can be deleted.
+no URL or bucket secret is needed either.
 
 ## Local use
 
