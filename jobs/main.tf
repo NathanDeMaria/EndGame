@@ -322,77 +322,16 @@ resource "aws_iam_role_policy_attachment" "scheduler_policy_attach" {
 }
 
 # ------------------------------------------------------------------------------
-# Failure Notifications (SNS)
-# ------------------------------------------------------------------------------
-resource "aws_sns_topic" "batch_failure" {
-  name = "endgame-batch-failure-topic"
-}
-
-resource "aws_sns_topic_subscription" "batch_failure_email" {
-  topic_arn = aws_sns_topic.batch_failure.arn
-  protocol  = "email"
-  endpoint  = var.notification_email
-}
-
-resource "aws_cloudwatch_event_rule" "batch_failure" {
-  name        = "endgame-batch-failure-rule"
-  description = "Trigger notification when Batch Job fails"
-
-  event_pattern = jsonencode({
-    source      = ["aws.batch"]
-    detail-type = ["Batch Job State Change"]
-    detail = {
-      status   = ["FAILED"]
-      jobQueue = [local.job_queue_arn]
-    }
-  })
-
-}
-
-resource "aws_cloudwatch_event_target" "sns" {
-  rule      = aws_cloudwatch_event_rule.batch_failure.name
-  target_id = "SendToSNS"
-  arn       = aws_sns_topic.batch_failure.arn
-  input_transformer {
-    input_paths = {
-      jobName = "$.detail.jobName"
-      status  = "$.detail.status"
-      reason  = "$.detail.statusReason"
-      jobId   = "$.detail.jobId"
-    }
-    input_template = "\"Job <jobName> (ID: <jobId>) has <status>. Reason: <reason>\""
-  }
-}
-
-resource "aws_sns_topic_policy" "default" {
-  arn = aws_sns_topic.batch_failure.arn
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "AllowEventsToPublish"
-        Effect = "Allow"
-        Principal = {
-          Service = "events.amazonaws.com"
-        }
-        Action   = "sns:Publish"
-        Resource = aws_sns_topic.batch_failure.arn
-      }
-    ]
-  })
-}
-
-# ------------------------------------------------------------------------------
 # Chain failure notifications
 # ------------------------------------------------------------------------------
-# `batch_failure` above covers a job that fails. It doesn't cover a chain that
-# never submitted one -- a throttled SubmitJob, a permissions change -- which
-# would otherwise be a silently skipped day: no Batch job means no Batch
-# event.
+# A job that fails is emailed by aws-batch-optimization (its alerts.tf), which
+# watches the whole shared queue for every app. That doesn't cover a chain that
+# never submitted a job -- a throttled SubmitJob, a permissions change --
+# which would otherwise be a silently skipped day: no Batch job means no Batch
+# event. So this rule sends chain failures to the same topic.
 #
 # Note a job failing mid-chain still notifies once per job, not once: Batch
-# marks the jobs waiting on it FAILED too, and `batch_failure` matches the
-# whole queue.
+# marks the jobs waiting on it FAILED too, and the shared rule matches each.
 resource "aws_cloudwatch_event_rule" "chain_failure" {
   name        = "endgame-chain-failure-rule"
   description = "Trigger notification when a job chain fails to submit its jobs"
@@ -410,5 +349,5 @@ resource "aws_cloudwatch_event_rule" "chain_failure" {
 resource "aws_cloudwatch_event_target" "chain_failure_sns" {
   rule      = aws_cloudwatch_event_rule.chain_failure.name
   target_id = "SendToSNS"
-  arn       = aws_sns_topic.batch_failure.arn
+  arn       = local.batch.failure_topic_arn
 }
