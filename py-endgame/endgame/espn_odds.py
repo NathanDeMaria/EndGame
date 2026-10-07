@@ -1,5 +1,5 @@
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from logging import getLogger
 from typing import AsyncIterator, Dict, List, NamedTuple, Optional, TypedDict
 
@@ -50,6 +50,41 @@ ESPN_DEFAULT_LIMIT = 25
 # every event unpriced for the most ordinary reason there is.
 MIN_EVENTS_TO_EXPECT_A_PRICE = 10
 
+# How far ahead of now a game has to be before ESPN not pricing it says
+# nothing about the pull. Both guards that judge a pull by what it's missing
+# -- `NoPricesFound` here, the coverage check in endgame_aws -- only look at
+# games inside it.
+#
+# ESPN used to carry a line on most of the NFL season from September. By
+# 2026-10-05 it carried the next game week and nothing past it, in every
+# horizon's pull: the Monday `season` pull found Oct 18's eleven NFL games
+# unpriced that the one a week before had priced, and every daily `near`
+# pull since has stopped at the following Monday. A week is what's left
+# that ESPN still prices in every league here, and it still covers the
+# failure the guards were written for -- a renamed key unprices *this*
+# week's games too.
+#
+# Eight days rather than seven so that a pull sees the same weekday next
+# week whole: Saturday's 10am pull judging next Saturday's night games is
+# seven days and twelve hours, and that is the slate the coverage guard was
+# written against.
+PRICED_REACH = timedelta(days=8)
+
+
+def _now() -> datetime:
+    """The moment `PRICED_REACH` is measured from. A function so tests can fix it."""
+    return datetime.now(tz=timezone.utc)
+
+
+def within_priced_reach(game_date: str, now: datetime) -> bool:
+    """
+    Whether a game is close enough to `now` that ESPN should be pricing it.
+
+    `game_date` is ESPN's own ISO-8601 instant (`2026-10-18T17:00Z`). Games
+    already past count, so this only ever excuses the far future.
+    """
+    return datetime.fromisoformat(game_date) <= now + PRICED_REACH
+
 
 class OddsProblem(Exception):
     """A pull came back wrong in a way the response itself doesn't admit to.
@@ -82,6 +117,11 @@ class NoPricesFound(OddsProblem):
     slate of them unpriced for the fortnight before every NHL and NFL
     season -- ten on an NHL night, enough to trip the guard every hour
     until puck drop.
+
+    And so are games past `PRICED_REACH`. The `season` horizon asks about
+    months of games ESPN won't price yet: ncaabb's listed 5,445 of them,
+    November to April, on the Monday before the season, and failed every
+    week from the day this guard shipped.
     """
 
 
@@ -133,8 +173,8 @@ class _OddsPage(NamedTuple):
     # `ODDS_PAGE_LIMIT`.
     events: int
     # The events that hadn't kicked off yet, by ESPN's own status, leaving
-    # out the preseason. The only ones a missing price says anything about;
-    # see `NoPricesFound`.
+    # out the preseason and anything past `PRICED_REACH`. The only ones a
+    # missing price says anything about; see `NoPricesFound`.
     unstarted: int
     odds: List[Odds]
 
@@ -174,12 +214,17 @@ async def _get_odds_page(url: str, parameters: RequestParameters) -> _OddsPage:
     content = await get(url, parameters)
     tree = json.loads(content.data)
     events = tree.get("events") or []
+    now = _now()
     unstarted = 0
     odds = []
     for event in events:
         assert len(event["competitions"]) == 1
         competition = event["competitions"][0]
-        if not _has_kicked_off(competition) and not _is_preseason(event):
+        if (
+            not _has_kicked_off(competition)
+            and not _is_preseason(event)
+            and within_priced_reach(event["date"], now)
+        ):
             unstarted += 1
         event_odds = competition.get("odds")
         if not event_odds:
@@ -309,11 +354,12 @@ async def get_odds_range(
     # range where nothing at all is priced is not. Only the games that
     # haven't kicked off count as listed: the ones that have are unpriced by
     # design, and a pull after the last kickoff sees nothing else. Nor does
-    # the preseason, which no book prices.
+    # the preseason, which no book prices, nor anything past `PRICED_REACH`.
     if seen_unstarted >= MIN_EVENTS_TO_EXPECT_A_PRICE and seen_priced == 0:
         raise NoPricesFound(
             f"{url} listed {seen_events} events between {start} and {end}, "
-            f"{seen_unstarted} of them not yet kicked off outside the preseason, "
+            f"{seen_unstarted} of them not yet kicked off, outside the preseason "
+            f"and within {PRICED_REACH.days} days, "
             f"and priced none of "
             f"them; the odds are missing or have moved"
         )

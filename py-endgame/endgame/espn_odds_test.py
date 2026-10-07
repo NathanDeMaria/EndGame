@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
@@ -10,6 +10,7 @@ from .espn_odds import (
     ESPN_DEFAULT_LIMIT,
     MIN_EVENTS_TO_EXPECT_A_PRICE,
     ODDS_PAGE_LIMIT,
+    PRICED_REACH,
     NoPricesFound,
     OddsTruncated,
     get_odds_range,
@@ -486,3 +487,67 @@ async def test_unpriced_regular_season_games_still_raise() -> None:
                 _URL, start=date(2026, 10, 8), end=date(2026, 10, 8)
             )
         ]
+
+
+# The Monday the NFL's whole season went unpriced: 2026-10-05, 08:00 Chicago.
+_MONDAY = datetime(2026, 10, 5, 13, 0, tzinfo=timezone.utc)
+
+
+def _patch_now(now: datetime):
+    return patch.object(espn_odds_module, "_now", lambda: now)
+
+
+async def test_games_past_the_priced_reach_are_not_a_failure() -> None:
+    """
+    The `season` horizon's ordinary answer: ESPN lists months of games and
+    prices the next week of them. ncaabb's season pull failed every Monday
+    on this before its season had a single game in reach.
+    """
+    unpriced = [
+        _event(str(i), "2026-11-03", priced=False)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE * 5)
+    ]
+    fake = _FakeEspn({"20261103": unpriced})
+
+    with _patch_espn(fake), _patch_now(_MONDAY):
+        odds = [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 11, 3), end=date(2026, 11, 3)
+            )
+        ]
+
+    assert odds == []
+
+
+async def test_unpriced_games_inside_the_reach_still_raise() -> None:
+    """The reach excuses the far future only: next Sunday's slate still counts."""
+    unpriced = [
+        _event(str(i), "2026-10-11", priced=False)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    far = [
+        _event(f"far-{i}", "2026-12-20", priced=False)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    fake = _FakeEspn({"20261011": unpriced, "20261220": far})
+
+    # Twenty listed, but only the ten in reach are counted against the pull.
+    with (
+        _patch_espn(fake),
+        _patch_now(_MONDAY),
+        pytest.raises(NoPricesFound, match="20 events .* 10 of them not yet"),
+    ):
+        [
+            o
+            async for o in get_odds_range(
+                _URL, start=date(2026, 10, 11), end=date(2026, 12, 20)
+            )
+        ]
+
+
+def test_the_reach_is_measured_from_now() -> None:
+    assert espn_odds_module.within_priced_reach("2026-10-13T13:00Z", _MONDAY)
+    assert not espn_odds_module.within_priced_reach("2026-10-13T13:01Z", _MONDAY)
+    assert espn_odds_module.within_priced_reach("2026-09-01T00:00Z", _MONDAY)
+    assert PRICED_REACH.days == 8
