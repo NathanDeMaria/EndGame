@@ -123,3 +123,43 @@ async def test_only_the_same_horizon_is_compared() -> None:
     other = "odds/ncaafb/2026-09-11/09-32-today.json"
     with _patch_s3([other], _records("2026-09-19", 40)):
         await _check_odds_coverage(_BUCKET, "ncaafb", "near", _NEW_KEY, [], _AS_OF)
+
+
+# The 2026-10-05 `season` pull: Monday 08:00 Chicago, after ESPN stopped
+# pricing anything past the next game week.
+_SEASON_MONDAY = datetime(2026, 10, 5, 8, 0, tzinfo=_CHICAGO)
+_SEASON_NEW_KEY = "odds/nfl/2026-10-05/08-00-season.json"
+_SEASON_OLD_KEY = "odds/nfl/2026-09-28/10-20-season.json"
+
+
+async def test_a_date_past_the_priced_reach_going_dark_is_fine() -> None:
+    """
+    What failed nfl's and ncaafb's season pulls: Oct 18 had eleven priced
+    games a week earlier and none now, because ESPN no longer prices that
+    far out. Next Sunday's slate held, and that is the part that says the
+    pull works.
+    """
+    before = _records("2026-10-11", 12) + _records("2026-10-18", 11)
+    with _patch_s3([_SEASON_OLD_KEY], before):
+        await _check_odds_coverage(
+            _BUCKET,
+            "nfl",
+            "season",
+            _SEASON_NEW_KEY,
+            _records("2026-10-11", 12),
+            _SEASON_MONDAY,
+        )
+
+
+async def test_a_date_inside_the_priced_reach_going_dark_still_raises() -> None:
+    before = _records("2026-10-11", 12) + _records("2026-10-18", 11)
+    with _patch_s3([_SEASON_OLD_KEY], before):
+        with pytest.raises(OddsCoverageDropped, match="2026-10-11 had 12"):
+            await _check_odds_coverage(
+                _BUCKET,
+                "nfl",
+                "season",
+                _SEASON_NEW_KEY,
+                _records("2026-10-11", 2),
+                _SEASON_MONDAY,
+            )
