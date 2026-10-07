@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from endgame.async_tools import apply_in_parallel
 from endgame.date import get_end_year
+from endgame.espn_odds import PRICED_REACH, within_priced_reach
 from endgame.espn_odds import Odds as EspnOdds
 from endgame.football_plays import FootballLeague, get_game_plays
 from endgame.ncaabb import NcaabbGender, get_plays_for_day
@@ -550,6 +551,16 @@ async def _check_odds_coverage(
     Same horizon only. The three cover different spans -- `today` reaches one
     day and `season` reaches months -- so comparing across them would find
     almost no dates in common and quietly check nothing.
+
+    And only games inside `PRICED_REACH` of `as_of`. Past it, a line coming
+    and going is ESPN's business rather than evidence about the pull: on
+    2026-10-05 it stopped pricing anything past the next game week, and the
+    NFL and ncaafb `season` pulls each found a date the week before had
+    priced (Oct 18's eleven NFL games, Oct 17's nine ncaafb ones) empty, and
+    refused. Leaving a far-off game out of a snapshot costs nothing
+    downstream either: cassandra's `OddsDatabase` takes each game's last
+    read *with* a spread, so an earlier price survives a later snapshot
+    that doesn't mention the game.
     """
     suffix = f"-{horizon}.json"
     previous = [
@@ -576,6 +587,7 @@ async def _check_odds_coverage(
             str(r["date"])[:10]
             for r in records
             if datetime.fromisoformat(r["date"]) > as_of
+            and within_priced_reach(r["date"], as_of)
         )
 
     was, now = by_date(before), by_date(league_odds)
@@ -585,7 +597,8 @@ async def _check_odds_coverage(
         has = now.get(day, 0)
         if has < had * _ODDS_COVERAGE_FLOOR:
             raise OddsCoverageDropped(
-                f"{league} {horizon}: {day} had {had} priced games in {last} "
+                f"{league} {horizon}: {day} had {had} priced games "
+                f"(within {PRICED_REACH.days} days) in {last} "
                 f"and has {has} now -- refusing to overwrite a good snapshot "
                 f"with a worse one"
             )
