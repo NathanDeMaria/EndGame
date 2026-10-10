@@ -3,10 +3,10 @@ import json
 import re
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import wraps
 from inspect import iscoroutinefunction
-from typing import AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from endgame.async_tools import apply_in_parallel
@@ -683,11 +683,67 @@ async def _load_football_season(league: str, year: int) -> Season:
     return season
 
 
+def _kickoff_utc(game: Game) -> datetime:
+    return game.date.replace(tzinfo=UTC) if game.date.tzinfo is None else game.date
+
+
+def _plays_to_pull(
+    games: Iterable[Game], stored_ids: set[str], refresh_after: datetime | None
+) -> list[str]:
+    """
+    The finished games in a week whose plays should be fetched now.
+
+    Every finished game that isn't stored yet, and -- with `refresh_after` --
+    every finished game that kicked off after it, stored or not. The second
+    half is for the pulls that run within the hour of a final: ESPN's feed
+    for a game that just ended can still be revised, and a game stored once
+    is otherwise never asked for again.
+    """
+    return [
+        game.game_id
+        for game in games
+        if game.completed
+        and (
+            game.game_id not in stored_ids
+            or (refresh_after is not None and _kickoff_utc(game) > refresh_after)
+        )
+    ]
+
+
+def _merge_pulled(
+    stored: FootballPlaysWeek, pulled: Mapping[str, Sequence]
+) -> FootballPlaysWeek:
+    """
+    A week's stored games with what was just pulled folded in.
+
+    A re-pulled game replaces its stored copy, except when the re-pull came
+    back with no drives and the stored copy had some: that's ESPN failing to
+    serve the game, not the game losing its plays, and keeping the old copy
+    is what a refresh that can't make things worse looks like. New games go
+    on the end, as they always have.
+    """
+    merged: list[Mapping[str, Any]] = []
+    for game in stored:
+        fresh = pulled.get(game["game_id"])
+        if fresh is None or (not fresh and game["drives"]):
+            merged.append(game)
+        else:
+            merged.append({"game_id": game["game_id"], "drives": fresh})
+    stored_ids = {game["game_id"] for game in stored}
+    merged += [
+        {"game_id": game_id, "drives": drives}
+        for game_id, drives in pulled.items()
+        if game_id not in stored_ids
+    ]
+    return merged
+
+
 async def football_plays(
     league: str,
     year: int,
     week: int | None = None,
     refresh: bool = False,
+    refresh_hours: float | None = None,
 ) -> None:
     """
     Pull play-by-play for a football season, a week per object.
@@ -704,6 +760,12 @@ async def football_plays(
     week -- are stored with an empty `drives` list, so they're "done" rather
     than retried forever. Pass --refresh=True to re-fetch a week from
     scratch, for when the plays themselves were revised upstream.
+
+    --refresh_hours=N is the lighter version of that, for a pull that runs
+    soon after games end: it re-fetches the finished games that kicked off in
+    the last N hours even when they're stored, and keeps everything else. The
+    daily chain passes it so the morning run re-reads what the hourly runs
+    caught minutes after a final (see `_plays_to_pull`).
 
     Only finished games are asked for. An unfinished one has partial
     play-by-play at best, and storing that would mark it done at whatever
@@ -724,6 +786,11 @@ async def football_plays(
         ) from None
 
     season = await _load_football_season(league, year)
+    refresh_after = (
+        None
+        if refresh_hours is None
+        else datetime.now(UTC) - timedelta(hours=refresh_hours)
+    )
     async with get_football_plays_store() as store:
         for season_week in iter_weeks(season):
             if week is not None and season_week.number != week:
@@ -735,11 +802,9 @@ async def football_plays(
                 else await _load_football_plays(store, league, year, season_week.number)
             )
             already_pulled = {game["game_id"] for game in stored}
-            to_pull = [
-                game.game_id
-                for game in season_week.games_in_order
-                if game.completed and game.game_id not in already_pulled
-            ]
+            to_pull = _plays_to_pull(
+                season_week.games_in_order, already_pulled, refresh_after
+            )
             if not to_pull:
                 logger.info(
                     "No new games for %s %d week %d (%d already stored)",
@@ -751,20 +816,18 @@ async def football_plays(
                 continue
 
             logger.info(
-                "Getting plays for %d games in %s %d week %d",
+                "Getting plays for %d games in %s %d week %d (%d of them again)",
                 len(to_pull),
                 league,
                 year,
                 season_week.number,
+                len(already_pulled.intersection(to_pull)),
             )
             args = [(game_id, football_league) for game_id in to_pull]
             pulled = [
                 drives async for drives in apply_in_parallel(get_game_plays, args)
             ]
-            games_plays: FootballPlaysWeek = list(stored) + [
-                {"game_id": game_id, "drives": drives}
-                for game_id, drives in zip(to_pull, pulled, strict=True)
-            ]
+            games_plays = _merge_pulled(stored, dict(zip(to_pull, pulled, strict=True)))
 
             await store.save(games_plays, league, year, season_week.number)
             logger.info(

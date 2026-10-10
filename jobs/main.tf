@@ -88,9 +88,14 @@ locals {
   # a slow `games` delays the pull instead of racing it. See
   # modules/chained_jobs.
   #
-  # Neither football step is given `--week` or `--refresh`. Both commands
-  # take them; they're the manual knobs, for trying a single week or
-  # re-fetching one ESPN revised.
+  # Each league runs this chain twice over: hourly through the afternoon and
+  # night (`football_intraday`), so a game's plays and EPA are in within the
+  # hour of its final, and once at 8am (`football`), which also re-fetches
+  # the last 36 hours of games (`--refresh_hours`). ESPN's feed for a game
+  # that just ended can still be revised, and `football_plays` otherwise
+  # never asks for a stored game again; 36 hours gives every game a morning
+  # re-read after the hourly runs caught it. `--week` and `--refresh` stay
+  # manual knobs, for trying a single week or re-fetching one ESPN revised.
   football_leagues = ["nfl", "ncaafb"]
 }
 
@@ -128,7 +133,7 @@ module "football" {
     },
     {
       name    = "football-plays-${each.key}"
-      command = ["football_plays", each.key, var.season_year]
+      command = ["football_plays", each.key, var.season_year, "--refresh_hours=36"]
     },
     {
       name    = "process-football-plays-${each.key}"
@@ -155,6 +160,48 @@ module "football" {
   # which is the AWS SDK for C++ rather than botocore and resolves the
   # bucket's region itself if nothing tells it. Saying it outright removes a
   # request and a way for the job to fail that nothing else here shares.
+  environment_variables = [
+    {
+      name  = "AWS_REGION"
+      value = var.aws_region
+    },
+  ]
+}
+
+# The same chains, hourly through the hours games end in, so a result's plays
+# -- and cassandra's EPA after them -- don't wait for 8am. Their own job
+# definitions and state machines, because the steps differ: no refresh, since
+# re-fetching the day's games every hour is what the 8am run is for. A run
+# with nothing new costs one schedule pull and a read per week.
+module "football_intraday" {
+  source   = "./modules/chained_jobs"
+  for_each = toset(local.football_leagues)
+
+  chain_name = "endgame-football-intraday-${each.key}"
+  steps = [
+    {
+      name    = "intraday-games-${each.key}"
+      command = ["games", each.key, var.season_year]
+    },
+    {
+      name    = "intraday-football-plays-${each.key}"
+      command = ["football_plays", each.key, var.season_year]
+    },
+    {
+      name    = "intraday-process-football-plays-${each.key}"
+      command = ["process_football_plays", each.key, var.season_year]
+    },
+  ]
+
+  image               = local.image
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = local.job_queue_arn
+  schedule_expression = var.football_intraday_schedule
+  schedule_timezone   = var.schedule_timezone
+  schedule_enabled    = true
+
   environment_variables = [
     {
       name  = "AWS_REGION"
@@ -340,8 +387,11 @@ resource "aws_cloudwatch_event_rule" "chain_failure" {
     source      = ["aws.states"]
     detail-type = ["Step Functions Execution Status Change"]
     detail = {
-      status          = ["FAILED", "TIMED_OUT", "ABORTED"]
-      stateMachineArn = [for chain in module.football : chain.state_machine_arn]
+      status = ["FAILED", "TIMED_OUT", "ABORTED"]
+      stateMachineArn = [
+        for chain in concat(values(module.football), values(module.football_intraday)) :
+        chain.state_machine_arn
+      ]
     }
   })
 }
