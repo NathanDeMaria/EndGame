@@ -28,3 +28,8 @@ output "football_state_machine_arns" {
   description = "State machine ARN per football league"
   value       = { for league, chain in module.football : league => chain.state_machine_arn }
 }
+
+output "football_intraday_state_machine_arns" {
+  description = "State machine ARN per football league, for the hourly chains"
+  value       = { for league, chain in module.football_intraday : league => chain.state_machine_arn }
+}

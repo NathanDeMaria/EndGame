@@ -65,6 +65,17 @@ variable "schedule_expression" {
   default     = "cron(0 8 * * ? *)"
 }
 
+variable "football_intraday_schedule" {
+  description = <<-EOT
+    When the football chains run besides 8am: on the hour from noon to 2am,
+    the hours college and NFL games end in. Every day rather than game days
+    only -- November's Tuesday and Wednesday games end in these hours too,
+    and a run with nothing new costs seconds.
+  EOT
+  type        = string
+  default     = "cron(0 0-2,12-23 * * ? *)"
+}
+
 variable "schedule_timezone" {
   description = "The timezone for the schedule"
   type        = string
