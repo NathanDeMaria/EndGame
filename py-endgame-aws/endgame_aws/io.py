@@ -26,7 +26,10 @@ class _SerializablePossession(PossessionSide, DataClassJsonMixin):
         return PossessionSide.to_dict(self)
 
 
-@dataclass
+# Keyword-only so these can follow the defaulted fields at the end of
+# `PlayerBoxScore` (`starter`, `position`), which a dataclass otherwise
+# refuses. Everything that builds one already names them.
+@dataclass(kw_only=True)
 class FlattenedBoxScore(PlayerBoxScore, DataClassJsonMixin):
     game_id: str
     team_id: str

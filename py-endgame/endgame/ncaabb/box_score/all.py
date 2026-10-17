@@ -1,9 +1,9 @@
+import json
 from dataclasses import dataclass
 from logging import getLogger
-from typing import AsyncIterator, Iterable, Iterator, List, Optional
+from typing import Any, AsyncIterator, Dict, Iterator, List, Mapping, Optional
 
 from aiohttp import ClientResponseError
-from bs4 import BeautifulSoup, Tag
 from dataclasses_json import DataClassJsonMixin
 
 from ...async_tools import apply_in_parallel
@@ -12,13 +12,14 @@ from ...types import Season, iter_weeks
 from ...web import get
 from ..gender import NcaabbGender
 from ..ncaabb import get_seasons
-from .player import PlayerBoxScore, RawPlayer, parse_player
+from .player import PlayerBoxScore, parse_player
 
 logger = getLogger(__name__)
 
 
-_URL_FORMAT = (
-    "https://www.espn.com/{gender}-college-basketball/boxscore?gameId={game_id}"
+_SUMMARY_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/basketball/"
+    "{gender}-college-basketball/summary"
 )
 
 
@@ -102,8 +103,8 @@ async def get_season_box_scores(
     # rather than firing off a whole season's games at once.
     for week in iter_weeks(season):
         # A game that hasn't finished has no box score to fetch: ESPN serves
-        # the page, there are just no players on it, so `get_box_score`
-        # parses two tables it can't find and returns None. Skipping them
+        # the summary, there are just no players in it, so `get_box_score`
+        # returns None. Skipping them
         # here is what lets a season carry games that haven't been played --
         # otherwise every unplayed game costs a request on every run between
         # now and kickoff.
@@ -131,139 +132,64 @@ async def get_season_box_scores(
 
 async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore]:
     """
-    Get the box score for a game.
-    Returns None only (so far) when we run into a known format
-    that means, "this game doesn't have a box score"
-    get failures will kill this.
+    A game's box score, from ESPN's game summary -- the same endpoint the
+    football play-by-play reads, under basketball.
+
+    Read from the summary rather than the box score page since the page's
+    markup moved (player names into `<th>` cells, the team header out of
+    `Gamestrip__Team`) and the scraper found nothing on any game, old or
+    new. The summary also says who started and each player's position,
+    which the page only showed as layout.
+
+    None for a game with no box score: unplayed, forfeited, or one ESPN
+    can't serve. Never saved to the web cache, for the reason
+    `football_plays.get_game_plays` gives: a summary is ~430KB, and a
+    season of them is gigabytes to save requests nothing repeats.
     """
-    url = _URL_FORMAT.format(gender=gender.name, game_id=game_id)
+    url = _SUMMARY_URL.format(gender=gender.name)
     try:
-        content = await get(url)
+        content = await get(url, {"event": game_id})
     except ClientResponseError as error:
-        logger.warning("Skipping %s because of error %s", url, str(error))
+        logger.warning("Skipping box score %s because of error %s", game_id, error)
         return None
-    soup = BeautifulSoup(content.data, features="html.parser")
-
-    tables = soup.select("div.Boxscore.ResponsiveTable")
-    if len(tables) != 2:
-        return None
-    away_table, home_table = tables
-
-    if away_table is None or home_table is None:
-        return None
-
-    away_header = soup.select_one("div.Gamestrip__Team--away a")
-    home_header = soup.select_one("div.Gamestrip__Team--home a")
-
-    if away_header is None or home_header is None:
-        return None
-
-    try:
-        away_id = _get_team_id(away_header)
-        home_id = _get_team_id(home_header)
-        if raw_away := list(_read_table(away_table, away_id)):
-            away_box_score = _parse_team_box_score(raw_away, False, away_id)
-        else:
-            return None
-        if raw_home := list(_read_table(home_table, home_id)):
-            home_box_score = _parse_team_box_score(raw_home, True, home_id)
-        else:
-            return None
-    except Exception as err:
-        logger.warning("Struggling with %s", url)
-        raise err
-
-    await content.save_if_necessary()
-
-    return BoxScore(game_id=game_id, home=home_box_score, away=away_box_score)
+    return parse_box_score(game_id, json.loads(content.data))
 
 
-def _parse_short_names(overview: Tag) -> tuple[str, str]:
-    _, away_row, home_row = overview.select("tr")
-    return _get_td_text(away_row), _get_td_text(home_row)
-
-
-def _get_td_text(tag: Tag) -> str:
-    td = tag.select_one("td")
-    if td is None:
-        raise _ParseError
-    return td.text
-
-
-def _get_str_attr(tag: Tag, name: str) -> str:
+def parse_box_score(game_id: str, summary: Mapping[str, Any]) -> Optional[BoxScore]:
     """
-    Read a single-valued attribute off a tag.
-
-    `Tag.attrs` values are `str | AttributeValueList`, because bs4 hands back a
-    list for multi-valued attributes like `class`. The attributes read here are
-    single-valued, so a list means the page isn't shaped the way this parser
-    expects.
+    The box score in one game summary. Home and away come from the
+    header's competitors, which is where ESPN says which team is which; the
+    box score's team list itself doesn't.
     """
-    value = tag.attrs[name]
-    if not isinstance(value, str):
-        raise _ParseError
-    return value
+    competitions = (summary.get("header") or {}).get("competitions") or [{}]
+    sides = {
+        str(competitor["team"]["id"]): competitor["homeAway"]
+        for competitor in competitions[0].get("competitors", [])
+    }
+    teams: Dict[str, TeamBoxScore] = {}
+    for team in (summary.get("boxscore") or {}).get("players", []):
+        team_id = str(team["team"]["id"])
+        side = sides.get(team_id)
+        players = list(_players(team))
+        if side is None or not players:
+            return None
+        teams[side] = TeamBoxScore(
+            players=players, is_home=side == "home", team_id=team_id
+        )
+    if set(teams) != {"home", "away"}:
+        return None
+    return BoxScore(game_id=game_id, home=teams["home"], away=teams["away"])
 
 
-def _get_team_id(team_name_tag: Tag) -> str:
-    team_link = _get_str_attr(team_name_tag, "href")
-    # This link hopefully always looks like:
-    # /womens-college-basketball/team/_/id/12/arizona-wildcats
-    return team_link.split("/")[-2]
-
-
-def _read_table(box_score_table: Tag, team_id: str) -> Iterator[RawPlayer]:
-    names_table, stats_table = box_score_table.select("table")
-    header = stats_table.select_one("tr:has(td.Table__customHeader)")
-    if header is None:
-        raise _ParseError
-    columns = [col.text for col in header.select("td")]
-    player_names = names_table.select("td:not(.Table__customHeader)")
-    if not player_names:
-        # Blank for a forfeit, like
-        # https://www.espn.com/womens-college-basketball/boxscore/_/gameId/401498641
-        return
-    if player_names[0].text.strip() == "No":
-        return
-    player_stats = stats_table.select("tr:has(td:not(.Table__customHeader))")
-    assert len(player_names) == len(player_stats)
-    for player_name, player_stat in zip(player_names, player_stats):
-        stat_values = [td.text for td in player_stat.find_all("td")]
-        if _is_did_not_play_row(stat_values):
-            continue
-        if stat_values[0] == "TEAM":
-            continue
-        yield _parse_player(player_name, columns, stat_values, team_id)
-
-
-def _parse_player(
-    player: Tag, columns: List[str], stat_values: List[str], team_id: str
-) -> RawPlayer:
-    if player_link := player.select_one("td a"):
-        href = _get_str_attr(player_link, "href")
-        *_, player_id, short_name = href.split("/")
-    else:
-        # If there's no ID, use the team+player name to make an ID
-        # Transfers will be counted as new players, but I can't do better right now
-        short_name = player.text
-        player_id = f"{team_id}-{short_name}"
-    assert len(columns) == len(stat_values), "Trouble parsing box score stats table"
-    stats = dict(zip(columns, stat_values))
-    return RawPlayer(player_id, short_name, stats)
-
-
-def _is_did_not_play_row(stat_values: List[str]) -> bool:
-    # Some player rows are just "Did not play" with a bunch of blank cells
-    return len(stat_values) == 2 and stat_values[1].strip() == "Did not play"
-
-
-def _parse_team_box_score(
-    players: Iterable[RawPlayer], is_home: bool, team_id: str
-) -> TeamBoxScore:
-    return TeamBoxScore(
-        players=[parse_player(p) for p in players], is_home=is_home, team_id=team_id
-    )
-
-
-class _ParseError(Exception):
-    pass
+def _players(team: Mapping[str, Any]) -> Iterator[PlayerBoxScore]:
+    """Everyone who played: an entry marked didNotPlay has no stats to read."""
+    seen = set()
+    for group in team.get("statistics", []):
+        keys = group.get("keys", [])
+        for entry in group.get("athletes", []):
+            if entry.get("didNotPlay") or not entry.get("stats"):
+                continue
+            player = parse_player(entry, keys)
+            if player.player_id not in seen:
+                seen.add(player.player_id)
+                yield player
