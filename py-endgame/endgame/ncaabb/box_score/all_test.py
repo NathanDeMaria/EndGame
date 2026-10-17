@@ -218,6 +218,26 @@ class TestParsingTheSummary:
         summary["boxscore"] = {"players": []}
         assert box_scores.parse_box_score("g1", summary) is None
 
+    def test_a_team_with_no_starter_flagged_has_unknown_starters(self) -> None:
+        # How 2010-11 comes back for most teams: everyone `starter: false`.
+        summary = _summary()
+        home = summary["boxscore"]["players"][1]["statistics"][0]["athletes"]
+        home[0]["starter"] = False
+        box = box_scores.parse_box_score("g1", summary)
+        assert box is not None
+        assert [p.starter for p in box.home.players] == [None]
+        # the other team said who started, so its bench is known to be bench
+        assert [p.starter for p in box.away.players] == [True, False]
+
+    def test_a_player_with_no_id_is_left_out(self) -> None:
+        # ESPN's stripped records: no id, no link.
+        summary = _summary()
+        away = summary["boxscore"]["players"][0]["statistics"][0]["athletes"]
+        away[1]["athlete"] = {"links": [], "shortName": "A. Nobody"}
+        box = box_scores.parse_box_score("g1", summary)
+        assert box is not None
+        assert [p.player_id for p in box.away.players] == ["1"]
+
 
 class _Content:
     def __init__(self, payload: dict) -> None:
