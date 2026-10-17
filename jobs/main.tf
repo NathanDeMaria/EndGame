@@ -120,6 +120,29 @@ module "daily_games" {
   schedule_timezone   = var.schedule_timezone
 }
 
+# NCAABB play-by-play, one object per league per day. Its own schedule rather
+# than a step after `box_scores`: `plays` asks ESPN for the day's games
+# itself, so nothing orders it after the season pull. November through April
+# only -- out of season every run would store another empty day.
+#
+# A run pulls every day of the last week that isn't stored yet, starting
+# with yesterday, so a failed morning is picked up by the next one rather
+# than lost (see `_play_days_to_pull`).
+module "basketball_plays" {
+  source   = "./modules/scheduled_job"
+  for_each = toset(["mens", "womens"])
+
+  job_name            = "plays-${each.key}"
+  image               = local.image
+  command             = ["plays", each.key]
+  execution_role_arn  = aws_iam_role.batch_execution_role.arn
+  job_role_arn        = aws_iam_role.batch_job_role.arn
+  scheduler_role_arn  = aws_iam_role.scheduler_role.arn
+  job_queue_arn       = local.job_queue_arn
+  schedule_expression = "cron(0 8 * 11,12,1,2,3,4 ? *)"
+  schedule_timezone   = var.schedule_timezone
+}
+
 # The football chains. One per league, each three jobs deep.
 module "football" {
   source   = "./modules/chained_jobs"

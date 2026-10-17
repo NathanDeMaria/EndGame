@@ -31,11 +31,14 @@ def _current_season() -> int:
     return current_date.year - 1 if current_date.month < 11 else current_date.year
 
 def _list_days(start_year: int) -> Iterator[str]:
-    # Determine start date for NCAABB season (typically November 1 to April 1)
+    # Determine start date for NCAABB season (November 1 to mid-April)
     # Season starts in November of the previous year if current month < November
     start_date = date(start_year, 11, 1)
     end_date = min(
-        date(start_year + 1, 4, 1),
+        # Not April 1: the Final Four and the title games are played in the
+        # first week or so of April (the latest, April 8), and a backfill
+        # that stopped at the 1st missed them every season.
+        date(start_year + 1, 4, 15),
         date.today() - timedelta(days=1),
     )
     current_day = end_date

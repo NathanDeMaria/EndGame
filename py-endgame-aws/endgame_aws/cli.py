@@ -654,15 +654,55 @@ async def odds(
     )
 
 
-async def plays(league: str, day: str | None = None) -> None:
-    parsed_date = _parse_date(day)
-    pbps = get_plays_for_day(parsed_date, NcaabbGender[league])
-    all_plays = [plays async for plays in pbps]
+def _play_days_to_pull(
+    today: date, stored: set[date], catch_up_days: int
+) -> list[date]:
+    """
+    The days a scheduled `plays` run should pull, oldest first: every day
+    from yesterday back `catch_up_days` that isn't stored yet.
+
+    Yesterday rather than today, because the run is in the morning and
+    today's games haven't been played. The look-back is what keeps one
+    failed run from being a day lost for good: a day is only stored once
+    every one of its games was read (one failed page fails the day), so a
+    missing day is exactly the one to try again.
+    """
+    window = [today - timedelta(days=back) for back in range(catch_up_days, 0, -1)]
+    return [day for day in window if day not in stored]
+
+
+async def plays(league: str, day: str | None = None, catch_up_days: int = 7) -> None:
+    """
+    NCAABB play-by-play, one object per league per day, at
+    `plays/ncaabb/{league}/{day}.json`.
+
+    With `day`, pulls that day and overwrites whatever is stored for it --
+    the backfill launcher's call. Without, it's the daily schedule's call:
+    every day in the last `catch_up_days` not stored yet (see
+    `_play_days_to_pull`).
+    """
+    gender = NcaabbGender[league]
     async with get_pbp_store() as store:
-        await store.save(all_plays, parsed_date, NcaabbGender[league])
-    logger.info(
-        "Saved pbp for %d games for %s on %s.", len(all_plays), league, parsed_date
-    )
+        if day is not None:
+            days = [_parse_date(day)]
+        else:
+            today = datetime.now(tz=ZoneInfo("America/Chicago")).date()
+            days = _play_days_to_pull(
+                today, await store.stored_dates(gender), catch_up_days
+            )
+            if not days:
+                logger.info("Every day of the last %d is stored", catch_up_days)
+        for parsed_date in days:
+            all_plays = [
+                plays async for plays in get_plays_for_day(parsed_date, gender)
+            ]
+            await store.save(all_plays, parsed_date, gender)
+            logger.info(
+                "Saved pbp for %d games for %s on %s.",
+                len(all_plays),
+                league,
+                parsed_date,
+            )
 
 
 async def _load_football_season(league: str, year: int) -> Season:
