@@ -94,3 +94,125 @@ class TestSkippingUnfinishedGames:
         apply = await _run(season, skip_game_ids={"pulled"})
 
         assert apply.calls == [[(NcaabbGender.mens, "new")]]
+
+
+def _summary() -> dict:
+    """A game summary trimmed to what the box score reads."""
+    keys = [
+        "minutes",
+        "points",
+        "fieldGoalsMade-fieldGoalsAttempted",
+        "threePointFieldGoalsMade-threePointFieldGoalsAttempted",
+        "freeThrowsMade-freeThrowsAttempted",
+        "rebounds",
+        "assists",
+        "turnovers",
+        "steals",
+        "blocks",
+        "offensiveRebounds",
+        "defensiveRebounds",
+        "fouls",
+    ]
+
+    def athlete(player_id: str, starter: bool, position: str, **extra: Any) -> dict:
+        return {
+            "athlete": {
+                "id": player_id,
+                "shortName": f"P. {player_id}",
+                "links": [
+                    {
+                        "href": "https://www.espn.com/mens-college-basketball/"
+                        f"player/_/id/{player_id}/player-{player_id}"
+                    }
+                ],
+                "position": {"abbreviation": position},
+            },
+            "starter": starter,
+            "didNotPlay": False,
+            "stats": [
+                "33",
+                "12",
+                "5-8",
+                "0-1",
+                "2-2",
+                "7",
+                "0",
+                "1",
+                "0",
+                "2",
+                "4",
+                "3",
+                "4",
+            ],
+            **extra,
+        }
+
+    return {
+        "header": {
+            "competitions": [
+                {
+                    "competitors": [
+                        {"homeAway": "home", "team": {"id": "97"}},
+                        {"homeAway": "away", "team": {"id": "59"}},
+                    ]
+                }
+            ]
+        },
+        "boxscore": {
+            "players": [
+                {
+                    "team": {"id": "59"},
+                    "statistics": [
+                        {
+                            "keys": keys,
+                            "athletes": [
+                                athlete("1", True, "G"),
+                                athlete("2", False, "C"),
+                                athlete("3", False, "F", didNotPlay=True, stats=[]),
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "team": {"id": "97"},
+                    "statistics": [
+                        {"keys": keys, "athletes": [athlete("4", True, "F")]}
+                    ],
+                },
+            ]
+        },
+    }
+
+
+class TestParsingTheSummary:
+    def test_home_and_away_come_from_the_header(self) -> None:
+        box = box_scores.parse_box_score("g1", _summary())
+        assert box is not None
+        assert (box.home.team_id, box.home.is_home) == ("97", True)
+        assert (box.away.team_id, box.away.is_home) == ("59", False)
+
+    def test_a_player_keeps_his_stats_start_and_position(self) -> None:
+        box = box_scores.parse_box_score("g1", _summary())
+        assert box is not None
+        first = box.away.players[0]
+        assert (first.player_id, first.short_name) == ("1", "player-1")
+        assert (first.starter, first.position) == (True, "G")
+        assert (first.minutes_played, first.points) == (33, 12)
+        assert (first.field_goal_makes, first.field_goal_attempts) == (5, 8)
+        assert (first.three_point_makes, first.three_point_attempts) == (0, 1)
+        assert (first.offensive_rebounds, first.defensive_rebounds, first.fouls) == (
+            4,
+            3,
+            4,
+        )
+        assert box.away.players[1].starter is False
+
+    def test_a_player_who_didnt_play_is_left_out(self) -> None:
+        box = box_scores.parse_box_score("g1", _summary())
+        assert box is not None
+        assert [p.player_id for p in box.away.players] == ["1", "2"]
+
+    def test_a_game_with_no_players_has_no_box_score(self) -> None:
+        summary = _summary()
+        summary["boxscore"] = {"players": []}
+        assert box_scores.parse_box_score("g1", summary) is None
