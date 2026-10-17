@@ -58,6 +58,8 @@ from . import (
     save_data_to_s3,
     save_to_s3,
 )
+from .basketball_parquet import get_processed_basketball_plays_store, season_of
+from .basketball_transform import transform_day_to_table
 from .io import S3NotFoundException, read_seasons
 from .pbp_transform import transform_week_to_table
 
@@ -705,6 +707,72 @@ async def plays(league: str, day: str | None = None, catch_up_days: int = 7) -> 
             )
 
 
+def _basketball_days_to_process(
+    raw: Mapping[date, datetime], processed: Mapping[date, datetime], year: int
+) -> list[date]:
+    """
+    The raw days of season `year` whose parquet is missing or older than the
+    raw object, oldest first.
+
+    Comparing the two objects' write times is what makes a daily run cheap:
+    a season is ~180 raw days, but a run only re-reads the one the morning
+    pull just wrote, plus any day a backfill re-wrote.
+    """
+    return sorted(
+        day
+        for day, raw_written in raw.items()
+        if season_of(day) == year
+        and (day not in processed or processed[day] < raw_written)
+    )
+
+
+async def process_basketball_plays(
+    league: str, year: int, day: str | None = None
+) -> None:
+    """
+    Turn stored raw NCAABB play-by-play into the daily parquet readers use.
+
+    `league` is mens or womens, `year` the season (named for the year it
+    starts in). Pass `day` to redo one day whatever its parquet says;
+    otherwise every day of the season whose raw object is newer than its
+    parquet is processed (see `_basketball_days_to_process`).
+
+    Reads only the bucket, never ESPN, like `process_football_plays`: the
+    parquet is a pure function of what `plays` stored, so a change to the
+    transform is a re-run of this.
+    """
+    gender = NcaabbGender[league]
+    processed = get_processed_basketball_plays_store()
+    async with get_pbp_store() as raw_store:
+        if day is not None:
+            days = [_parse_date(day)]
+        else:
+            days = _basketball_days_to_process(
+                await raw_store.modified_dates(gender),
+                await processed.processed_days(league, year),
+                year,
+            )
+        written = 0
+        for parsed_date in days:
+            games = await raw_store.load(parsed_date, gender)
+            table = transform_day_to_table(games, league, year, parsed_date)
+            if table.num_rows == 0:
+                # Most of these are days nobody played: the raw layer keeps
+                # every day of the season, games or not, and an empty day
+                # gets no parquet.
+                continue
+            await processed.save_day(table, league, parsed_date)
+            written += 1
+    # Said even when it's zero, for the reason `process_football_plays` gives.
+    logger.info(
+        "Wrote %d of %d day(s) of %s %d play-by-play",
+        written,
+        len(days),
+        league,
+        year,
+    )
+
+
 async def _load_football_season(league: str, year: int) -> Season:
     """
     The season whose games the play-by-play pull walks.
@@ -1115,6 +1183,7 @@ def main():
         "games": games,
         "odds": odds,
         "plays": plays,
+        "process_basketball_plays": process_basketball_plays,
         "process_football_plays": process_football_plays,
         "preview_unplayed": preview_unplayed,
         "regroup_ncaabb_weeks": regroup_ncaabb_weeks,
