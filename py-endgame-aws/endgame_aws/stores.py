@@ -53,6 +53,18 @@ class _DatedStore[_StoreType]:
         )
         return self._deserializer(data)
 
+    async def stored_dates(self, league: NcaabbGender) -> set[datetime.date]:
+        """
+        Every date with an object for `league`, from one listing of the
+        prefix rather than a request per date.
+        """
+        prefix = f"{self._build_prefix(league)}/"
+        suffix = f".{self._extension}"
+        return {
+            datetime.date.fromisoformat(key.removeprefix(prefix).removesuffix(suffix))
+            async for key in list_keys(self._bucket, prefix, self._client)
+        }
+
     async def load_all(self, league: NcaabbGender) -> AsyncIterator[_StoreType]:
         prefix = self._build_prefix(league)
         async for key in list_keys(self._bucket, prefix, self._client):

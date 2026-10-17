@@ -22,3 +22,10 @@ async def test_plays() -> None:
 async def test_day_plays() -> None:
     pbps = get_plays_for_day(date(2026, 3, 1), NcaabbGender.womens)
     assert sum([len(p["plays"]) async for p in pbps]) == 17720
+
+
+async def test_a_tournament_game_is_pulled_once() -> None:
+    # The Final Four day: both semifinals are listed under d1 and ncaa.
+    pbps = get_plays_for_day(date(2026, 4, 4), NcaabbGender.mens)
+    game_ids = [p["game_id"] async for p in pbps]
+    assert len(game_ids) == len(set(game_ids)) == 4

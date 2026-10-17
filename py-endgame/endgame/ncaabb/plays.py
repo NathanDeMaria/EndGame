@@ -18,8 +18,18 @@ class _PlayByPlay(TypedDict):
 async def get_plays_for_day(
     date: datetime.date, league: NcaabbGender
 ) -> AsyncIterator[_PlayByPlay]:
+    # A postseason game is listed under d1 *and* under its tournament's group,
+    # so asking each group in turn sees it twice. Every day stored before this
+    # carries each tournament game twice over -- a reader of those has to
+    # drop the repeat itself.
+    seen: set[str] = set()
     for group in NcaabbGroup:
-        games = await get_ncaabb_games(date, league, group)
+        games = [
+            game
+            for game in await get_ncaabb_games(date, league, group)
+            if game.game_id not in seen
+        ]
+        seen.update(game.game_id for game in games)
         args = [(game.game_id, league) for game in games]
         plays_list = [p async for p in apply_in_parallel(get_plays, args)]
         for game, plays in zip(games, plays_list, strict=True):
