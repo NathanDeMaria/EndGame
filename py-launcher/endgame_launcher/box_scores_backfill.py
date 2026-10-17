@@ -1,12 +1,17 @@
 """
 Re-pull every stored NCAABB season's box scores, keeping each game's summary.
 
-One Batch job per league-season, each `box_scores {league} {season}
---refresh_box_scores`: every finished game's summary is fetched again,
-stored whole under summaries/ncaabb/, and the season's box score file is
-rewritten from them -- with `starter` and `position`, which the box scores
-stored before the summary didn't have. ~6,000 requests a season; a season
-that fails is redone whole by running it again.
+One Batch job per league-season, each `refresh_box_scores {league}
+{season}`: every finished game's summary is fetched again and stored whole
+under summaries/ncaabb/, and each game it has a box score for is rewritten
+in the season's box score file -- with `starter` and `position`, which the
+box scores stored before the summary didn't have. A game ESPN no longer has
+a box score for keeps the rows stored for it. The season and its
+possessions aren't touched. ~6,000 requests a season; a season that fails
+is redone whole by running it again.
+
+Stops at the season before this one: the current season is the daily
+`box_scores` job's, and running both on it would race on the same file.
 """
 
 import asyncio
@@ -27,7 +32,7 @@ def _current_season() -> int:
 
 
 async def _main(first: int = _FIRST_SEASON, last: int | None = None) -> None:
-    last = last if last is not None else _current_season()
+    last = last if last is not None else _current_season() - 1
     params = [
         (league, season)
         for league in ("mens", "womens")
@@ -45,9 +50,7 @@ async def _main(first: int = _FIRST_SEASON, last: int | None = None) -> None:
 
         async def _run(league: str, season: int) -> tuple[str, int, bool]:
             async with sem:
-                job = await definition.run(
-                    "box_scores", league, str(season), refresh_box_scores="True"
-                )
+                job = await definition.run("refresh_box_scores", league, str(season))
                 return league, season, await job.wait()
 
         results = await asyncio.gather(

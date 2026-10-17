@@ -110,23 +110,11 @@ async def _load_box_scores(
         return []
 
 
-async def box_scores(gender_name: str, year: int, refresh_box_scores: bool = False):
+async def box_scores(gender_name: str, year: int):
     """
     The season's games, possessions and box scores for `gender_name`'s
-    `year`.
-
-    Box scores already stored are kept and only new games pulled, unless
-    `refresh_box_scores`: then every finished game's summary is pulled
-    again, and each game it has a box score for is rewritten. That's for the
-    stored seasons whose box scores predate a field -- `starter` and
-    `position`, read since the box score moved to ESPN's summary. A game
-    with no box score in its summary keeps the rows stored for it (see
-    `_merge_box_scores`). Possessions are untouched either way.
-
-    Every summary pulled is stored whole (`GameSummaryStore`) before its box
-    score is read out of it, and a game whose summary is stored isn't pulled
-    again -- the summary, not the box score file, is the record of what's
-    been fetched.
+    `year`. Possessions and box scores already stored are kept, and only
+    new games pulled (see `_pull_box_scores`).
     """
     gender = NcaabbGender[gender_name]
     season_so_far = await _load_season(_CONFIG.bucket, _build_season_key(year, gender))
@@ -175,22 +163,68 @@ async def box_scores(gender_name: str, year: int, refresh_box_scores: bool = Fal
             rows.extend(side.to_dict() for side in sides)
     await save_csv_to_s3(rows, _CONFIG.bucket, _build_possession_key(year, gender))
 
+    await _pull_box_scores(season, gender, year, refresh=False)
+
+
+async def refresh_box_scores(gender_name: str, year: int):
+    """
+    Pull every finished game's summary in a stored season again, and
+    rewrite the box score of each game it has one for. That's for the stored
+    seasons whose box scores predate a field -- `starter` and `position`,
+    read since the box score moved to ESPN's summary.
+
+    Only the summaries and the box score file are written. The season is
+    read as stored rather than pulled again, and possessions aren't asked
+    for: `box_scores` would also rewrite the season (the file the ratings
+    read) and retry every game without possessions, and neither is what a
+    box score backfill is for.
+    """
+    gender = NcaabbGender[gender_name]
+    season = await _load_season(_CONFIG.bucket, _build_season_key(year, gender))
+    if season is None:
+        logger.warning("No stored season for %s %d", gender.name, year)
+        return
+    await _pull_box_scores(season, gender, year, refresh=True)
+
+
+async def _pull_box_scores(
+    season: Season, gender: NcaabbGender, year: int, *, refresh: bool
+) -> None:
+    """
+    Store the summary of every finished game not stored yet -- every one, if
+    `refresh` -- and add the box scores read out of them to the season's
+    file.
+
+    Each summary is stored whole (`GameSummaryStore`) before its box score
+    is read, and a game whose summary is stored isn't pulled again: the
+    summary, not the box score file, is the record of what's been fetched.
+    The file is only ever added to or corrected (`_merge_box_scores`).
+    """
     async with get_game_summary_store() as summaries:
-        stored = (
-            set()
-            if refresh_box_scores
-            else await summaries.stored_game_ids(gender.name, year)
-        )
+        stored = await summaries.stored_game_ids(gender.name, year)
+        so_far = await _load_box_scores(_CONFIG.bucket, year, gender)
         pulled: list[FlattenedBoxScore] = []
+        if not refresh:
+            # A run that dies between storing summaries and writing the file
+            # leaves games whose summary is stored and whose box score isn't
+            # in it. Read those back from the store, rather than skip them
+            # for good or fetch them again. A summary with no box score in it
+            # is read back every run too; outside 2010-15 there are few.
+            in_file = {row.game_id for row in so_far}
+            for game_id in sorted(stored - in_file):
+                summary = await summaries.load(gender.name, year, game_id)
+                box_score = parse_box_score(game_id, summary)
+                if box_score is not None:
+                    pulled.extend(_flatten(box_score))
+        skip = set() if refresh else stored
         stored_now = 0
-        async for game_id, summary in get_season_summaries(season, gender, stored):
+        async for game_id, summary in get_season_summaries(season, gender, skip):
             await summaries.save(summary, gender.name, year, game_id)
             stored_now += 1
             box_score = parse_box_score(game_id, summary)
             if box_score is not None:
                 pulled.extend(_flatten(box_score))
         logger.info("Stored %d game summaries for %s %d", stored_now, gender.name, year)
-    so_far = await _load_box_scores(_CONFIG.bucket, year, gender)
     box_score_rows = [row.to_dict() for row in _merge_box_scores(so_far, pulled)]
     if not box_score_rows:
         # Early seasons (ex: NCAAWBB 2011) don't have box scores
@@ -214,26 +248,38 @@ def _merge_box_scores(
     so_far: Sequence[FlattenedBoxScore], pulled: Sequence[FlattenedBoxScore]
 ) -> list[FlattenedBoxScore]:
     """
-    The season's box scores: what was stored, less any game with a box
-    score just pulled, then what was pulled. A game is replaced whole, so a
-    re-pull with a player more or fewer doesn't leave the old rows behind.
+    The season's box scores: what was stored, with each game that has a box
+    score just pulled updated from it.
 
-    Only a box score replaces a game. ESPN now serves some games it once had
-    a box score for -- most of 2010-12's games without a play-by-play --
-    with the rosters and every player marked didNotPlay, and the box score
-    scraped from its page back then is the only copy of their stats; a game
-    no longer in the season at all isn't pulled again either. Both keep the
-    rows they have.
+    A box score pulled again replaces the stored row of each player in it,
+    and nothing else. ESPN now serves some games it once had a box score for
+    -- most of 2010-12's games without a play-by-play -- with the rosters
+    and every player marked didNotPlay, and some single players with their
+    record stripped (no id, stats gone): the box score scraped from its page
+    back then is the only copy of those stats. A game no longer in the
+    season at all isn't pulled again either. All of them keep the rows they
+    have.
+
+    The one stored row that does go is a player missing from the new box
+    score whose name is in it on the same team under another id: that's
+    ESPN giving him a new one, and keeping both would count him twice.
 
     A player's row in a game is kept once: the scraped files hold a
     postseason game twice, once for each place the season listed it.
     """
-    replaced = {row.game_id for row in pulled}
+    pulled_players = {(row.game_id, row.team_id, row.player_id) for row in pulled}
+    pulled_names = {(row.game_id, row.team_id, row.short_name) for row in pulled}
+
+    def _superseded(row: FlattenedBoxScore) -> bool:
+        return (row.game_id, row.team_id, row.player_id) in pulled_players or (
+            row.game_id,
+            row.team_id,
+            row.short_name,
+        ) in pulled_names
+
     merged: list[FlattenedBoxScore] = []
     seen: set[tuple[str, str, str]] = set()
-    for row in itertools.chain(
-        (row for row in so_far if row.game_id not in replaced), pulled
-    ):
+    for row in itertools.chain((row for row in so_far if not _superseded(row)), pulled):
         key = (row.game_id, row.team_id, row.player_id)
         if key not in seen:
             seen.add(key)
@@ -1240,6 +1286,7 @@ def main():
     commands = {
         "backfill_week_zero": backfill_week_zero,
         "box_scores": box_scores,
+        "refresh_box_scores": refresh_box_scores,
         "football_plays": football_plays,
         "games": games,
         "odds": odds,
