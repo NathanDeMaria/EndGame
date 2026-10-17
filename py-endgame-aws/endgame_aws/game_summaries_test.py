@@ -229,6 +229,17 @@ async def test_a_refresh_rewrites_only_games_with_a_box_score_now() -> None:
     assert await run.store.stored_game_ids("mens", 2011) == {"g1", "g2"}
 
 
+async def test_a_refresh_run_again_reads_back_what_it_stored() -> None:
+    # The first run stored g1's summary, then ESPN turned it away for g2.
+    stored = {"g1": _summary_of(_row("g1", "p1", 11))}
+    so_far = [_row("g1", "p1", 10), _row("g2", "p2", 20)]
+    now = [("g2", _summary_of(_row("g2", "p2", 21)))]
+    async with _Run(so_far, now, stored) as run:
+        await cli.refresh_box_scores("mens", 2011)
+    assert run.skipped == {"g1"}
+    assert run.rows() == [("g1", "p1", 11), ("g2", "p2", 21)]
+
+
 async def test_a_refresh_leaves_the_season_and_possessions_alone() -> None:
     # `_Run` fails the test if the season is pulled or saved, or the
     # possessions read; this is that check with nothing else going on.
