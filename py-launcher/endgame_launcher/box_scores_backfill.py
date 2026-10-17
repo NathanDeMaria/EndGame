@@ -7,8 +7,9 @@ under summaries/ncaabb/, and each game it has a box score for is rewritten
 in the season's box score file -- with `starter` and `position`, which the
 box scores stored before the summary didn't have. A game ESPN no longer has
 a box score for keeps the rows stored for it. The season and its
-possessions aren't touched. ~6,000 requests a season; a season that fails
-is redone whole by running it again.
+possessions aren't touched. ~6,000 requests a season. A season that fails
+or comes back short is finished by running it again (`_main(first=...,
+last=...)`): its summaries already stored are read back, not fetched.
 
 Stops at the season before this one: the current season is the daily
 `box_scores` job's, and running both on it would race on the same file.

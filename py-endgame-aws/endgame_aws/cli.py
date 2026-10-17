@@ -168,10 +168,14 @@ async def box_scores(gender_name: str, year: int):
 
 async def refresh_box_scores(gender_name: str, year: int):
     """
-    Pull every finished game's summary in a stored season again, and
-    rewrite the box score of each game it has one for. That's for the stored
+    Rewrite the box score of every game in a stored season from its
+    summary, pulling the summaries not stored yet. That's for the stored
     seasons whose box scores predate a field -- `starter` and `position`,
     read since the box score moved to ESPN's summary.
+
+    A season that stops partway (ESPN turning requests away, a job dying)
+    is finished by running it again: what's stored is read back, not
+    fetched again.
 
     Only the summaries and the box score file are written. The season is
     read as stored rather than pulled again, and possessions aren't asked
@@ -191,9 +195,9 @@ async def _pull_box_scores(
     season: Season, gender: NcaabbGender, year: int, *, refresh: bool
 ) -> None:
     """
-    Store the summary of every finished game not stored yet -- every one, if
-    `refresh` -- and add the box scores read out of them to the season's
-    file.
+    Store the summary of every finished game not stored yet, and add the
+    box scores read out of them to the season's file -- with, if `refresh`,
+    the box score of every game whose summary was stored already.
 
     Each summary is stored whole (`GameSummaryStore`) before its box score
     is read, and a game whose summary is stored isn't pulled again: the
@@ -203,22 +207,22 @@ async def _pull_box_scores(
     async with get_game_summary_store() as summaries:
         stored = await summaries.stored_game_ids(gender.name, year)
         so_far = await _load_box_scores(_CONFIG.bucket, year, gender)
+        # Box scores from the summaries already stored: all of them on a
+        # refresh, so running one again picks up where the last stopped.
+        # Otherwise just those missing from the file, which a run that dies
+        # between storing summaries and writing the file leaves, and which
+        # would be skipped for good. (A summary with no box score in it is
+        # read back every run too; outside 2010-15 there are few.)
+        in_file = {row.game_id for row in so_far}
+        read_back = stored if refresh else stored - in_file
         pulled: list[FlattenedBoxScore] = []
-        if not refresh:
-            # A run that dies between storing summaries and writing the file
-            # leaves games whose summary is stored and whose box score isn't
-            # in it. Read those back from the store, rather than skip them
-            # for good or fetch them again. A summary with no box score in it
-            # is read back every run too; outside 2010-15 there are few.
-            in_file = {row.game_id for row in so_far}
-            for game_id in sorted(stored - in_file):
-                summary = await summaries.load(gender.name, year, game_id)
-                box_score = parse_box_score(game_id, summary)
-                if box_score is not None:
-                    pulled.extend(_flatten(box_score))
-        skip = set() if refresh else stored
+        for game_id in sorted(read_back):
+            summary = await summaries.load(gender.name, year, game_id)
+            box_score = parse_box_score(game_id, summary)
+            if box_score is not None:
+                pulled.extend(_flatten(box_score))
         stored_now = 0
-        async for game_id, summary in get_season_summaries(season, gender, skip):
+        async for game_id, summary in get_season_summaries(season, gender, stored):
             await summaries.save(summary, gender.name, year, game_id)
             stored_now += 1
             box_score = parse_box_score(game_id, summary)
