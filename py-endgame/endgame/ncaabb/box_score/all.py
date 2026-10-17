@@ -221,6 +221,12 @@ def parse_box_score(game_id: str, summary: Mapping[str, Any]) -> Optional[BoxSco
         players = list(_players(team))
         if side is None or not players:
             return None
+        if not any(player.starter for player in players):
+            # ESPN didn't say who started: every player is sent as
+            # `starter: false` (most teams in 2010-11), which isn't the same
+            # as knowing none of them did.
+            for player in players:
+                player.starter = None
         teams[side] = TeamBoxScore(
             players=players, is_home=side == "home", team_id=team_id
         )
@@ -230,12 +236,19 @@ def parse_box_score(game_id: str, summary: Mapping[str, Any]) -> Optional[BoxSco
 
 
 def _players(team: Mapping[str, Any]) -> Iterator[PlayerBoxScore]:
-    """Everyone who played: an entry marked didNotPlay has no stats to read."""
+    """
+    Everyone who played: an entry marked didNotPlay has no stats to read.
+    Nor does one with no athlete id, which is how ESPN shows a player whose
+    record it has since stripped (no id, no link, stats gone) -- there's no
+    one to give the row to.
+    """
     seen = set()
     for group in team.get("statistics", []):
         keys = group.get("keys", [])
         for entry in group.get("athletes", []):
             if entry.get("didNotPlay") or not entry.get("stats"):
+                continue
+            if not (entry.get("athlete") or {}).get("id"):
                 continue
             player = parse_player(entry, keys)
             if player.player_id not in seen:
