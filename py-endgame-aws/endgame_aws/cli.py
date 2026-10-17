@@ -104,18 +104,7 @@ async def _load_box_scores(
         return []
 
 
-async def box_scores(gender_name: str, year: int, refresh_box_scores: bool = False):
-    """
-    The season's games, possessions and box scores for `gender_name`'s
-    `year`.
-
-    Box scores already stored are kept and only new games pulled, unless
-    `refresh_box_scores`: then every finished game's box score is pulled
-    again and the season's file rewritten. That's for the stored seasons
-    whose box scores predate a field -- `starter` and `position`, read since
-    the box score moved to ESPN's summary. Possessions are untouched either
-    way.
-    """
+async def box_scores(gender_name: str, year: int):
     gender = NcaabbGender[gender_name]
     season_so_far = await _load_season(_CONFIG.bucket, _build_season_key(year, gender))
     season = await get_ncaabb_season(year, gender, season_so_far, include_unplayed=True)
@@ -163,11 +152,7 @@ async def box_scores(gender_name: str, year: int, refresh_box_scores: bool = Fal
             rows.extend(side.to_dict() for side in sides)
     await save_csv_to_s3(rows, _CONFIG.bucket, _build_possession_key(year, gender))
 
-    box_score_rows_so_far = (
-        []
-        if refresh_box_scores
-        else await _load_box_scores(_CONFIG.bucket, year, gender)
-    )
+    box_score_rows_so_far = await _load_box_scores(_CONFIG.bucket, year, gender)
     box_score_rows: list[dict] = [r.to_dict() for r in box_score_rows_so_far]
     pulled_game_ids = {side.game_id for side in box_score_rows_so_far}
     async for box_score in get_season_box_scores(season, gender, pulled_game_ids):
