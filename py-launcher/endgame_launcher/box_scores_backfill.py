@@ -15,9 +15,10 @@ from datetime import date
 from aiobotocore.session import get_session
 from batch_core import Config, JobDefinition
 
-# The first season with box scores worth pulling: the play-by-play starts in
-# 2013-14 too.
-_FIRST_SEASON = 2013
+# endgame's first NCAABB season. ESPN's summary has the box score (with
+# starters and positions) and the plays (with player ids) that far back --
+# further than the play-by-play stored under plays/, which starts in 2013-14.
+_FIRST_SEASON = 2010
 
 
 def _current_season() -> int:
