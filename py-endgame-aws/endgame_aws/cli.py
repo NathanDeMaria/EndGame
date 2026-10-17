@@ -15,7 +15,11 @@ from endgame.espn_odds import PRICED_REACH, within_priced_reach
 from endgame.espn_odds import Odds as EspnOdds
 from endgame.football_plays import FootballLeague, get_game_plays
 from endgame.ncaabb import NcaabbGender, get_plays_for_day
-from endgame.ncaabb.box_score.all import get_season_box_scores
+from endgame.ncaabb.box_score.all import (
+    BoxScore,
+    get_season_summaries,
+    parse_box_score,
+)
 from endgame.ncaabb.matchup import get_possessions, logger
 from endgame.ncaabb.ncaabb import (
     REGULAR_SEASON_START,
@@ -48,6 +52,7 @@ from . import (
     FootballPlaysStore,
     FootballPlaysWeek,
     get_football_plays_store,
+    get_game_summary_store,
     get_pbp_store,
     get_processed_plays_store,
     list_all_keys,
@@ -104,7 +109,23 @@ async def _load_box_scores(
         return []
 
 
-async def box_scores(gender_name: str, year: int):
+async def box_scores(gender_name: str, year: int, refresh_box_scores: bool = False):
+    """
+    The season's games, possessions and box scores for `gender_name`'s
+    `year`.
+
+    Box scores already stored are kept and only new games pulled, unless
+    `refresh_box_scores`: then every finished game's box score is pulled
+    again and the season's file rewritten. That's for the stored seasons
+    whose box scores predate a field -- `starter` and `position`, read since
+    the box score moved to ESPN's summary. Possessions are untouched either
+    way.
+
+    Every summary pulled is stored whole (`GameSummaryStore`) before its box
+    score is read out of it, and a game whose summary is stored isn't pulled
+    again -- the summary, not the box score file, is the record of what's
+    been fetched.
+    """
     gender = NcaabbGender[gender_name]
     season_so_far = await _load_season(_CONFIG.bucket, _build_season_key(year, gender))
     season = await get_ncaabb_season(year, gender, season_so_far, include_unplayed=True)
@@ -152,32 +173,60 @@ async def box_scores(gender_name: str, year: int):
             rows.extend(side.to_dict() for side in sides)
     await save_csv_to_s3(rows, _CONFIG.bucket, _build_possession_key(year, gender))
 
-    box_score_rows_so_far = await _load_box_scores(_CONFIG.bucket, year, gender)
-    box_score_rows: list[dict] = [r.to_dict() for r in box_score_rows_so_far]
-    pulled_game_ids = {side.game_id for side in box_score_rows_so_far}
-    async for box_score in get_season_box_scores(season, gender, pulled_game_ids):
-        box_score_rows.extend(
-            FlattenedBoxScore.from_player(
-                player,
-                team_id=box_score.home.team_id,
-                game_id=box_score.game_id,
-            ).to_dict()
-            for player in box_score.home.players
+    async with get_game_summary_store() as summaries:
+        stored = (
+            set()
+            if refresh_box_scores
+            else await summaries.stored_game_ids(gender.name, year)
         )
-        box_score_rows.extend(
-            FlattenedBoxScore.from_player(
-                player,
-                team_id=box_score.away.team_id,
-                game_id=box_score.game_id,
-            ).to_dict()
-            for player in box_score.away.players
+        pulled: list[FlattenedBoxScore] = []
+        pulled_ids: set[str] = set()
+        async for game_id, summary in get_season_summaries(season, gender, stored):
+            await summaries.save(summary, gender.name, year, game_id)
+            pulled_ids.add(game_id)
+            box_score = parse_box_score(game_id, summary)
+            if box_score is not None:
+                pulled.extend(_flatten(box_score))
+        logger.info(
+            "Stored %d game summaries for %s %d", len(pulled_ids), gender.name, year
         )
+    so_far = (
+        []
+        if refresh_box_scores
+        else await _load_box_scores(_CONFIG.bucket, year, gender)
+    )
+    box_score_rows = [
+        row.to_dict() for row in _merge_box_scores(so_far, pulled, pulled_ids)
+    ]
     if not box_score_rows:
         # Early seasons (ex: NCAAWBB 2011) don't have box scores
         return
     await save_csv_to_s3(
         box_score_rows, _CONFIG.bucket, _build_box_score_key(year, gender)
     )
+
+
+def _flatten(box_score: BoxScore) -> list[FlattenedBoxScore]:
+    return [
+        FlattenedBoxScore.from_player(
+            player, team_id=team.team_id, game_id=box_score.game_id
+        )
+        for team in (box_score.home, box_score.away)
+        for player in team.players
+    ]
+
+
+def _merge_box_scores(
+    so_far: Sequence[FlattenedBoxScore],
+    pulled: Sequence[FlattenedBoxScore],
+    pulled_ids: set[str],
+) -> list[FlattenedBoxScore]:
+    """
+    The season's box scores: what was stored, less any game pulled again,
+    then what was just pulled. A game is replaced whole, so a re-pull with a
+    player more or fewer doesn't leave the old rows behind.
+    """
+    return [row for row in so_far if row.game_id not in pulled_ids] + list(pulled)
 
 
 @dataclass

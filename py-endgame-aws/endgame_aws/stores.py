@@ -227,3 +227,58 @@ def get_football_plays_store() -> AsyncContextManager[FootballPlaysStore]:
         lambda b: json.loads(gzip.decompress(b).decode()),
         "json.gz",
     )
+
+
+class GameSummaryStore:
+    """
+    ESPN's game summary for each NCAABB game, as `get_game_summary` keeps it,
+    one object per game at
+
+        summaries/ncaabb/{league}/{season}/{game_id}.json.gz
+
+    The raw layer the box scores are read from, kept whole because it costs
+    a request per game to get again and carries more than the box score --
+    ESPN's own play-by-play, win probability, lines, officials. A game rather
+    than a day per object, so a re-pull of one game is one PUT and "is this
+    game stored" is a single listing of the season.
+    """
+
+    def __init__(self, client, bucket: str, prefix: str = "summaries/ncaabb") -> None:
+        self._client = client
+        self._bucket = bucket
+        self._prefix = prefix
+
+    def key(self, league: str, season: int, game_id: str) -> str:
+        return f"{self._season_prefix(league, season)}/{game_id}.json.gz"
+
+    async def stored_game_ids(self, league: str, season: int) -> set[str]:
+        prefix = f"{self._season_prefix(league, season)}/"
+        return {
+            key.removeprefix(prefix).removesuffix(".json.gz")
+            async for key in list_keys(self._bucket, prefix, self._client)
+        }
+
+    async def save(
+        self, summary: Mapping[str, Any], league: str, season: int, game_id: str
+    ) -> None:
+        await self._client.put_object(
+            Bucket=self._bucket,
+            Key=self.key(league, season, game_id),
+            Body=gzip.compress(json.dumps(summary).encode()),
+        )
+
+    async def load(self, league: str, season: int, game_id: str) -> dict:
+        data = await read_from_s3(
+            self._bucket, self.key(league, season, game_id), self._client
+        )
+        return json.loads(gzip.decompress(data).decode())
+
+    def _season_prefix(self, league: str, season: int) -> str:
+        return f"{self._prefix}/{league}/{season}"
+
+
+@asynccontextmanager
+async def get_game_summary_store() -> AsyncIterator[GameSummaryStore]:
+    session = get_session()
+    async with session.create_client("s3") as client:
+        yield GameSummaryStore(client, Config.init_from_file().bucket)

@@ -31,6 +31,8 @@ from .pbp_transform import (
 from .stores import (
     FootballPlaysStore,
     FootballPlaysWeek,
+    GameSummaryStore,
     get_football_plays_store,
+    get_game_summary_store,
     get_pbp_store,
 )
