@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, List, Tuple
 from unittest.mock import patch
@@ -216,3 +217,40 @@ class TestParsingTheSummary:
         summary = _summary()
         summary["boxscore"] = {"players": []}
         assert box_scores.parse_box_score("g1", summary) is None
+
+
+class _Content:
+    def __init__(self, payload: dict) -> None:
+        self.data = json.dumps(payload).encode()
+
+
+class TestKeepingTheSummary:
+    async def test_the_parts_about_the_fetch_not_the_game_are_dropped(self) -> None:
+        dropped = {"news": [1], "standings": {}, "videos": []}
+        payload = {**_summary(), **dropped, "plays": []}
+
+        async def _get(url: str, parameters: Any = None) -> _Content:
+            assert parameters == {"event": "g1"}
+            return _Content(payload)
+
+        with patch.object(box_scores, "get", _get):
+            kept = await box_scores.get_game_summary(NcaabbGender.mens, "g1")
+        assert kept is not None
+        assert set(kept) == {"header", "boxscore", "plays"}
+
+    async def test_each_summary_comes_back_with_its_own_game(self) -> None:
+        season = Season(
+            [Week([_game(3, "a"), _game(3, "b"), _game(3, "c")], 1)], 2025, []
+        )
+
+        async def _summary_for(_gender: NcaabbGender, game_id: str) -> dict | None:
+            return None if game_id == "b" else {"for": game_id}
+
+        with patch.object(box_scores, "get_game_summary", _summary_for):
+            pulled = [
+                pair
+                async for pair in box_scores.get_season_summaries(
+                    season, NcaabbGender.mens, skip_game_ids={"c"}
+                )
+            ]
+        assert pulled == [("a", {"for": "a"})]
