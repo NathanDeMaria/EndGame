@@ -58,12 +58,24 @@ class _DatedStore[_StoreType]:
         Every date with an object for `league`, from one listing of the
         prefix rather than a request per date.
         """
+        return set(await self.modified_dates(league))
+
+    async def modified_dates(
+        self, league: NcaabbGender
+    ) -> dict[datetime.date, datetime.datetime]:
+        """
+        Every date with an object for `league`, with when that object was
+        last written -- from the same single listing as `stored_dates`.
+        """
         prefix = f"{self._build_prefix(league)}/"
         suffix = f".{self._extension}"
-        return {
-            datetime.date.fromisoformat(key.removeprefix(prefix).removesuffix(suffix))
-            async for key in list_keys(self._bucket, prefix, self._client)
-        }
+        paginator = self._client.get_paginator("list_objects_v2")
+        modified = {}
+        async for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                name = obj["Key"].removeprefix(prefix).removesuffix(suffix)
+                modified[datetime.date.fromisoformat(name)] = obj["LastModified"]
+        return modified
 
     async def load_all(self, league: NcaabbGender) -> AsyncIterator[_StoreType]:
         prefix = self._build_prefix(league)

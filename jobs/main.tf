@@ -120,27 +120,53 @@ module "daily_games" {
   schedule_timezone   = var.schedule_timezone
 }
 
-# NCAABB play-by-play, one object per league per day. Its own schedule rather
-# than a step after `box_scores`: `plays` asks ESPN for the day's games
-# itself, so nothing orders it after the season pull. November through April
-# only -- out of season every run would store another empty day.
+# The NCAABB play-by-play chain, one per league:
 #
-# A run pulls every day of the last week that isn't stored yet, starting
-# with yesterday, so a failed morning is picked up by the next one rather
-# than lost (see `_play_days_to_pull`).
-module "basketball_plays" {
-  source   = "./modules/scheduled_job"
+#   plays                     pulls each day of the last week not stored yet,
+#                             starting with yesterday, to
+#                             plays/ncaabb/{league}/{day}.json
+#   process_basketball_plays  turns every raw day newer than its parquet into
+#                             processed/basketball_plays/...
+#
+# Its own chain rather than steps after `box_scores`: `plays` asks ESPN for
+# the day's games itself, so nothing orders it after the season pull. The
+# look-back means a failed morning is picked up by the next one rather than
+# lost (see `_play_days_to_pull`). November through April only -- out of
+# season every run would store another empty day.
+module "basketball" {
+  source   = "./modules/chained_jobs"
   for_each = toset(["mens", "womens"])
 
-  job_name            = "plays-${each.key}"
+  chain_name = "endgame-basketball-${each.key}"
+  steps = [
+    {
+      name    = "basketball-plays-${each.key}"
+      command = ["plays", each.key]
+    },
+    {
+      name    = "process-basketball-plays-${each.key}"
+      command = ["process_basketball_plays", each.key, var.season_year]
+    },
+  ]
+
   image               = local.image
-  command             = ["plays", each.key]
   execution_role_arn  = aws_iam_role.batch_execution_role.arn
   job_role_arn        = aws_iam_role.batch_job_role.arn
   scheduler_role_arn  = aws_iam_role.scheduler_role.arn
   job_queue_arn       = local.job_queue_arn
   schedule_expression = "cron(0 8 * 11,12,1,2,3,4 ? *)"
   schedule_timezone   = var.schedule_timezone
+  schedule_enabled    = true
+
+  # `process_basketball_plays` lists and reads through pyarrow's
+  # S3FileSystem, which resolves the region itself if nothing tells it -- the
+  # same reason the football chains set it.
+  environment_variables = [
+    {
+      name  = "AWS_REGION"
+      value = var.aws_region
+    },
+  ]
 }
 
 # The football chains. One per league, each three jobs deep.
@@ -412,7 +438,11 @@ resource "aws_cloudwatch_event_rule" "chain_failure" {
     detail = {
       status = ["FAILED", "TIMED_OUT", "ABORTED"]
       stateMachineArn = [
-        for chain in concat(values(module.football), values(module.football_intraday)) :
+        for chain in concat(
+          values(module.football),
+          values(module.football_intraday),
+          values(module.basketball),
+        ) :
         chain.state_machine_arn
       ]
     }
