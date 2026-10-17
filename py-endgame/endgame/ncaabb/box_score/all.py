@@ -22,6 +22,12 @@ _SUMMARY_URL = (
     "{gender}-college-basketball/summary"
 )
 
+# The parts of a summary dropped before it's kept, because they're about the
+# day it was fetched rather than the game: the league's headlines (the
+# biggest part after the plays), the conference standings as of the fetch,
+# and links to video.
+_NOT_ABOUT_THE_GAME = ("news", "standings", "videos")
+
 
 @dataclass
 class TeamBoxScore(DataClassJsonMixin):
@@ -98,14 +104,27 @@ async def save_box_scores(gender: NcaabbGender, location: Optional[str] = None):
 async def get_season_box_scores(
     season: Season, gender: NcaabbGender, skip_game_ids: set[str] | None = None
 ) -> AsyncIterator[BoxScore]:
+    """The box scores in `get_season_summaries`, for a caller that wants only those."""
+    async for game_id, summary in get_season_summaries(season, gender, skip_game_ids):
+        box_score = parse_box_score(game_id, summary)
+        if box_score is not None:
+            yield box_score
+
+
+async def get_season_summaries(
+    season: Season, gender: NcaabbGender, skip_game_ids: set[str] | None = None
+) -> AsyncIterator[tuple[str, dict]]:
+    """
+    Every finished game's summary (see `get_game_summary`), as (game id,
+    summary), skipping `skip_game_ids`.
+    """
     game_id_filter = skip_game_ids or set()
     # A week at a time, so the work is batched (and logged) in chunks
     # rather than firing off a whole season's games at once.
     for week in iter_weeks(season):
         # A game that hasn't finished has no box score to fetch: ESPN serves
-        # the summary, there are just no players in it, so `get_box_score`
-        # returns None. Skipping them
-        # here is what lets a season carry games that haven't been played --
+        # the summary, there are just no players in it. Skipping them here is
+        # what lets a season carry games that haven't been played --
         # otherwise every unplayed game costs a request on every run between
         # now and kickoff.
         finished = [game for game in week.games if game.completed]
@@ -115,11 +134,15 @@ async def get_season_box_scores(
             if game.game_id not in game_id_filter
         ]
         if args:
-            logger.info("Getting box scores for %d %d", season.year, week.number)
-            games = apply_in_parallel(get_box_score, args)
-            async for game in games:
-                if game is not None:
-                    yield game
+            logger.info("Getting game summaries for %d %d", season.year, week.number)
+            summaries = apply_in_parallel(get_game_summary, args)
+            # `apply_in_parallel` gathers, so results come back in args' order
+            index = 0
+            async for summary in summaries:
+                game_id = args[index][1]
+                index += 1
+                if summary is not None:
+                    yield game_id, summary
         else:
             logger.info(
                 "Nothing to pull for box scores %d %d (%d of %d games finished)",
@@ -130,10 +153,39 @@ async def get_season_box_scores(
             )
 
 
+async def get_game_summary(gender: NcaabbGender, game_id: str) -> Optional[dict]:
+    """
+    ESPN's game summary for a game -- the same endpoint the football
+    play-by-play reads, under basketball -- with the parts that aren't about
+    the game taken out (`_NOT_ABOUT_THE_GAME`).
+
+    Kept nearly whole because it's one request per game for a dozen
+    seasons, and what's worth reading out of it isn't all settled: besides
+    the box score (with who started and each player's position) it carries
+    ESPN's own play-by-play, which names the shooter on every shot back to
+    2013-14 where the play-by-play page doesn't; win probability at every
+    play; the betting lines; venue, attendance and officials; neutral site,
+    records and the score by half. 18-28KB a game gzipped.
+
+    None if ESPN won't serve it. Never saved to the web cache, for the
+    reason `football_plays.get_game_plays` gives: the caller stores what it
+    wants, and the cache would hold a season of these again.
+    """
+    url = _SUMMARY_URL.format(gender=gender.name)
+    try:
+        content = await get(url, {"event": game_id})
+    except ClientResponseError as error:
+        logger.warning("Skipping summary %s because of error %s", game_id, error)
+        return None
+    summary = json.loads(content.data)
+    return {
+        key: value for key, value in summary.items() if key not in _NOT_ABOUT_THE_GAME
+    }
+
+
 async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore]:
     """
-    A game's box score, from ESPN's game summary -- the same endpoint the
-    football play-by-play reads, under basketball.
+    A game's box score, from its summary (`get_game_summary`).
 
     Read from the summary rather than the box score page since the page's
     markup moved (player names into `<th>` cells, the team header out of
@@ -142,17 +194,10 @@ async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore
     which the page only showed as layout.
 
     None for a game with no box score: unplayed, forfeited, or one ESPN
-    can't serve. Never saved to the web cache, for the reason
-    `football_plays.get_game_plays` gives: a summary is ~430KB, and a
-    season of them is gigabytes to save requests nothing repeats.
+    can't serve.
     """
-    url = _SUMMARY_URL.format(gender=gender.name)
-    try:
-        content = await get(url, {"event": game_id})
-    except ClientResponseError as error:
-        logger.warning("Skipping box score %s because of error %s", game_id, error)
-        return None
-    return parse_box_score(game_id, json.loads(content.data))
+    summary = await get_game_summary(gender, game_id)
+    return None if summary is None else parse_box_score(game_id, summary)
 
 
 def parse_box_score(game_id: str, summary: Mapping[str, Any]) -> Optional[BoxScore]:
