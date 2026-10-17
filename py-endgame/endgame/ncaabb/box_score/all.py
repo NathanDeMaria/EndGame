@@ -118,7 +118,10 @@ async def get_season_summaries(
     Every finished game's summary (see `get_game_summary`), as (game id,
     summary), skipping `skip_game_ids`.
     """
-    game_id_filter = skip_game_ids or set()
+    # Copied, since every game asked for is added to it: a season lists a
+    # postseason game twice (under D1 and under its tournament), and each
+    # copy would otherwise be fetched -- and its box score written -- twice.
+    game_id_filter = set(skip_game_ids or ())
     # A week at a time, so the work is batched (and logged) in chunks
     # rather than firing off a whole season's games at once.
     for week in iter_weeks(season):
@@ -128,11 +131,11 @@ async def get_season_summaries(
         # otherwise every unplayed game costs a request on every run between
         # now and kickoff.
         finished = [game for game in week.games if game.completed]
-        args = [
-            (gender, game.game_id)
-            for game in finished
-            if game.game_id not in game_id_filter
-        ]
+        args = []
+        for game in finished:
+            if game.game_id not in game_id_filter:
+                game_id_filter.add(game.game_id)
+                args.append((gender, game.game_id))
         if args:
             logger.info("Getting game summaries for %d %d", season.year, week.number)
             summaries = apply_in_parallel(get_game_summary, args)

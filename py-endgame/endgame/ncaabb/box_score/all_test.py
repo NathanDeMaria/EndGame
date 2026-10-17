@@ -254,3 +254,25 @@ class TestKeepingTheSummary:
                 )
             ]
         assert pulled == [("a", {"for": "a"})]
+
+    async def test_a_game_listed_twice_is_fetched_once(self) -> None:
+        # A postseason game is in the season under D1 and its tournament.
+        season = Season([Week([_game(3, "a"), _game(3, "a")], 1)], 2025, [])
+        asked: list[str] = []
+
+        async def _summary_for(_gender: NcaabbGender, game_id: str) -> dict | None:
+            asked.append(game_id)
+            return {"for": game_id}
+
+        skip: set[str] = set()
+        with patch.object(box_scores, "get_game_summary", _summary_for):
+            pulled = [
+                pair
+                async for pair in box_scores.get_season_summaries(
+                    season, NcaabbGender.mens, skip_game_ids=skip
+                )
+            ]
+        assert asked == ["a"]
+        assert pulled == [("a", {"for": "a"})]
+        # and the caller's set is left as it was
+        assert skip == set()
