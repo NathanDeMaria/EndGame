@@ -66,6 +66,8 @@ class FlattenedBoxScore(PlayerBoxScore, DataClassJsonMixin):
             turnovers=player.turnovers,
             fouls=player.fouls,
             points=player.points,
+            starter=player.starter,
+            position=player.position,
             game_id=game_id,
             team_id=team_id,
         )
