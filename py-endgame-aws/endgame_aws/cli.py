@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import json
 import re
 from collections import Counter
@@ -115,11 +116,12 @@ async def box_scores(gender_name: str, year: int, refresh_box_scores: bool = Fal
     `year`.
 
     Box scores already stored are kept and only new games pulled, unless
-    `refresh_box_scores`: then every finished game's box score is pulled
-    again and the season's file rewritten. That's for the stored seasons
-    whose box scores predate a field -- `starter` and `position`, read since
-    the box score moved to ESPN's summary. Possessions are untouched either
-    way.
+    `refresh_box_scores`: then every finished game's summary is pulled
+    again, and each game it has a box score for is rewritten. That's for the
+    stored seasons whose box scores predate a field -- `starter` and
+    `position`, read since the box score moved to ESPN's summary. A game
+    with no box score in its summary keeps the rows stored for it (see
+    `_merge_box_scores`). Possessions are untouched either way.
 
     Every summary pulled is stored whole (`GameSummaryStore`) before its box
     score is read out of it, and a game whose summary is stored isn't pulled
@@ -180,24 +182,16 @@ async def box_scores(gender_name: str, year: int, refresh_box_scores: bool = Fal
             else await summaries.stored_game_ids(gender.name, year)
         )
         pulled: list[FlattenedBoxScore] = []
-        pulled_ids: set[str] = set()
+        stored_now = 0
         async for game_id, summary in get_season_summaries(season, gender, stored):
             await summaries.save(summary, gender.name, year, game_id)
-            pulled_ids.add(game_id)
+            stored_now += 1
             box_score = parse_box_score(game_id, summary)
             if box_score is not None:
                 pulled.extend(_flatten(box_score))
-        logger.info(
-            "Stored %d game summaries for %s %d", len(pulled_ids), gender.name, year
-        )
-    so_far = (
-        []
-        if refresh_box_scores
-        else await _load_box_scores(_CONFIG.bucket, year, gender)
-    )
-    box_score_rows = [
-        row.to_dict() for row in _merge_box_scores(so_far, pulled, pulled_ids)
-    ]
+        logger.info("Stored %d game summaries for %s %d", stored_now, gender.name, year)
+    so_far = await _load_box_scores(_CONFIG.bucket, year, gender)
+    box_score_rows = [row.to_dict() for row in _merge_box_scores(so_far, pulled)]
     if not box_score_rows:
         # Early seasons (ex: NCAAWBB 2011) don't have box scores
         return
@@ -217,16 +211,34 @@ def _flatten(box_score: BoxScore) -> list[FlattenedBoxScore]:
 
 
 def _merge_box_scores(
-    so_far: Sequence[FlattenedBoxScore],
-    pulled: Sequence[FlattenedBoxScore],
-    pulled_ids: set[str],
+    so_far: Sequence[FlattenedBoxScore], pulled: Sequence[FlattenedBoxScore]
 ) -> list[FlattenedBoxScore]:
     """
-    The season's box scores: what was stored, less any game pulled again,
-    then what was just pulled. A game is replaced whole, so a re-pull with a
-    player more or fewer doesn't leave the old rows behind.
+    The season's box scores: what was stored, less any game with a box
+    score just pulled, then what was pulled. A game is replaced whole, so a
+    re-pull with a player more or fewer doesn't leave the old rows behind.
+
+    Only a box score replaces a game. ESPN now serves some games it once had
+    a box score for -- most of 2010-12's games without a play-by-play --
+    with the rosters and every player marked didNotPlay, and the box score
+    scraped from its page back then is the only copy of their stats; a game
+    no longer in the season at all isn't pulled again either. Both keep the
+    rows they have.
+
+    A player's row in a game is kept once: the scraped files hold a
+    postseason game twice, once for each place the season listed it.
     """
-    return [row for row in so_far if row.game_id not in pulled_ids] + list(pulled)
+    replaced = {row.game_id for row in pulled}
+    merged: list[FlattenedBoxScore] = []
+    seen: set[tuple[str, str, str]] = set()
+    for row in itertools.chain(
+        (row for row in so_far if row.game_id not in replaced), pulled
+    ):
+        key = (row.game_id, row.team_id, row.player_id)
+        if key not in seen:
+            seen.add(key)
+            merged.append(row)
+    return merged
 
 
 @dataclass

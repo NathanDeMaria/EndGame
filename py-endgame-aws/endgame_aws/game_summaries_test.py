@@ -100,5 +100,19 @@ def _row(game_id: str, player_id: str) -> FlattenedBoxScore:
 def test_a_game_pulled_again_replaces_its_old_rows_whole() -> None:
     so_far = [_row("g1", "p1"), _row("g1", "p2"), _row("g2", "p3")]
     pulled = [_row("g1", "p1")]
-    merged = _merge_box_scores(so_far, pulled, {"g1"})
+    merged = _merge_box_scores(so_far, pulled)
     assert [(r.game_id, r.player_id) for r in merged] == [("g2", "p3"), ("g1", "p1")]
+
+
+def test_a_game_with_no_box_score_now_keeps_its_old_rows() -> None:
+    # ESPN serves the summary with everyone marked didNotPlay, so nothing
+    # was pulled for g1: its stored stats are the only copy.
+    so_far = [_row("g1", "p1"), _row("g2", "p2")]
+    merged = _merge_box_scores(so_far, [_row("g2", "p2")])
+    assert [(r.game_id, r.player_id) for r in merged] == [("g1", "p1"), ("g2", "p2")]
+
+
+def test_a_player_stored_twice_in_a_game_is_kept_once() -> None:
+    so_far = [_row("g1", "p1"), _row("g1", "p2"), _row("g1", "p1")]
+    merged = _merge_box_scores(so_far, [])
+    assert [(r.game_id, r.player_id) for r in merged] == [("g1", "p1"), ("g1", "p2")]
