@@ -6,6 +6,11 @@ terraform {
       source  = "hashicorp/aws"
       version = ">= 5.0"
     }
+    # Zips the finals watcher's two files into its Lambda package.
+    archive = {
+      source  = "hashicorp/archive"
+      version = ">= 2.4"
+    }
   }
 
   backend "s3" {

@@ -67,13 +67,32 @@ variable "schedule_expression" {
 
 variable "football_intraday_schedule" {
   description = <<-EOT
-    When the football chains run besides 8am: on the hour from noon to 2am,
-    the hours college and NFL games end in. Every day rather than game days
-    only -- November's Tuesday and Wednesday games end in these hours too,
-    and a run with nothing new costs seconds.
+    When the intraday football chains ran on the clock, before the finals
+    watcher started them: on the hour from noon to 2am, the hours college and
+    NFL games end in. Only used while `football_intraday_schedule_enabled` is
+    on.
   EOT
   type        = string
   default     = "cron(0 0-2,12-23 * * ? *)"
+}
+
+variable "football_intraday_schedule_enabled" {
+  description = <<-EOT
+    Whether the intraday football chains also run hourly. Off: the finals
+    watcher starts them as games end. The way back if the watcher has to be
+    turned off -- turn this on with `finals_watcher_enabled` off.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "finals_watcher_enabled" {
+  description = <<-EOT
+    Whether the finals watcher's five-minute tick fires. Off leaves the
+    Lambda in place, to invoke by hand, and starts nothing on its own.
+  EOT
+  type        = bool
+  default     = true
 }
 
 variable "schedule_timezone" {

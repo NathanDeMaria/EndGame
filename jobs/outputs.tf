@@ -30,6 +30,14 @@ output "football_state_machine_arns" {
 }
 
 output "football_intraday_state_machine_arns" {
-  description = "State machine ARN per football league, for the hourly chains"
+  description = "State machine ARN per football league, for the chains the finals watcher starts"
   value       = { for league, chain in module.football_intraday : league => chain.state_machine_arn }
+}
+
+# One tick by hand, to see what the watcher sees (its report is the response):
+#
+#   aws lambda invoke --function-name "$(terraform output -raw finals_watcher_function_name)" /dev/stdout
+output "finals_watcher_function_name" {
+  description = "The finals watcher's Lambda"
+  value       = aws_lambda_function.finals_watcher.function_name
 }
