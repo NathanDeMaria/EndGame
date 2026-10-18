@@ -88,14 +88,15 @@ locals {
   # a slow `games` delays the pull instead of racing it. See
   # modules/chained_jobs.
   #
-  # Each league runs this chain twice over: hourly through the afternoon and
-  # night (`football_intraday`), so a game's plays and EPA are in within the
-  # hour of its final, and once at 8am (`football`), which also re-fetches
-  # the last 36 hours of games (`--refresh_hours`). ESPN's feed for a game
-  # that just ended can still be revised, and `football_plays` otherwise
-  # never asks for a stored game again; 36 hours gives every game a morning
-  # re-read after the hourly runs caught it. `--week` and `--refresh` stay
-  # manual knobs, for trying a single week or re-fetching one ESPN revised.
+  # Each league runs this chain twice over: whenever its games go final
+  # (`football_intraday`, started by the finals watcher in finals_watcher.tf),
+  # so a game's plays and EPA are in within minutes of its final, and once at
+  # 8am (`football`), which also re-fetches the last 36 hours of games
+  # (`--refresh_hours`). ESPN's feed for a game that just ended can still be
+  # revised, and `football_plays` otherwise never asks for a stored game
+  # again; 36 hours gives every game a morning re-read after the intraday
+  # runs caught it. `--week` and `--refresh` stay manual knobs, for trying a
+  # single week or re-fetching one ESPN revised.
   football_leagues = ["nfl", "ncaafb"]
 }
 
@@ -217,11 +218,17 @@ module "football" {
   ]
 }
 
-# The same chains, hourly through the hours games end in, so a result's plays
-# -- and cassandra's EPA after them -- don't wait for 8am. Their own job
-# definitions and state machines, because the steps differ: no refresh, since
-# re-fetching the day's games every hour is what the 8am run is for. A run
-# with nothing new costs one schedule pull and a read per week.
+# The same chains, run when games go final, so a result's plays -- and
+# cassandra's EPA after them -- don't wait for 8am. Their own job definitions
+# and state machines, because the steps differ: no refresh, since re-fetching
+# the day's games on every run is what the 8am run is for.
+#
+# The finals watcher starts these (finals_watcher.tf). They used to run on the
+# hour from noon to 2am, which had a final wait half an hour for its run on
+# average -- an hour and a half in fact, since ESPN's CDN gave each hourly
+# read the previous hour's scoreboard -- and ran fifteen times on days with
+# no games at all. The schedule is kept, off, as the switch back: set
+# `football_intraday_schedule_enabled` and the hourly runs return.
 module "football_intraday" {
   source   = "./modules/chained_jobs"
   for_each = toset(local.football_leagues)
@@ -249,7 +256,7 @@ module "football_intraday" {
   job_queue_arn       = local.job_queue_arn
   schedule_expression = var.football_intraday_schedule
   schedule_timezone   = var.schedule_timezone
-  schedule_enabled    = true
+  schedule_enabled    = var.football_intraday_schedule_enabled
 
   environment_variables = [
     {
@@ -407,6 +414,12 @@ resource "aws_iam_policy" "scheduler_policy" {
         # chains take this role as an input, so reading their arns back here
         # would be a cycle.
         Resource = "arn:${data.aws_partition.current.partition}:states:${var.aws_region}:${data.aws_caller_identity.current.account_id}:stateMachine:${var.resource_name_prefix}-*"
+      },
+      {
+        # The finals watcher's five-minute tick.
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = aws_lambda_function.finals_watcher.arn
       }
     ]
   })

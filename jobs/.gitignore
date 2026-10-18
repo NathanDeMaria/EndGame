@@ -34,3 +34,6 @@ override.tf.json
 terraform.rc
 
 *.env
+
+# The finals watcher's Lambda zip, built by terraform's archive_file
+.build/

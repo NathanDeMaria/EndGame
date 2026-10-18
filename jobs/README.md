@@ -80,10 +80,31 @@ no URL or bucket secret is needed either.
 make plan
 make apply
 make lint         # what CI runs; no credentials needed
+make test         # the finals watcher's unit tests (lint runs them too)
 ```
 
 `make plan` and `make apply` read `terraform.tfvars`, which is gitignored. CI
 passes the same values as `TF_VAR_*` instead.
+
+## The finals watcher
+
+`finals_watcher.tf` and `finals_watcher/` start the intraday football chains
+when games go final, in place of running them hourly. Every five minutes a
+Lambda reads the day's FBS, FCS and NFL scoreboards and, if a game has gone
+final since the last run it started, starts that league's
+`endgame-football-intraday-*` chain. It doesn't start one while any job that
+writes the league's plays is queued or running, or within 15 minutes of the
+last, and between games it doesn't read ESPN at all. What it remembers is
+`s3://<bucket>/finals-watcher/state.json`.
+
+```bash
+# one tick by hand; the response is what it saw and did
+aws lambda invoke --function-name endgame-football-finals-watcher /dev/stdout
+aws logs tail /aws/lambda/endgame-football-finals-watcher --since 1h
+```
+
+Back to hourly: `finals_watcher_enabled = false` and
+`football_intraday_schedule_enabled = true`.
 
 ## Bumping the season
 
