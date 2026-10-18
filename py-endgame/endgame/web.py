@@ -1,9 +1,11 @@
 import asyncio
 import random
 import re
+import time
 from logging import getLogger
 from pathlib import Path
 from typing import Dict, Optional, Union
+from urllib.parse import urlsplit
 
 import aiofiles
 import aiohttp
@@ -120,9 +122,43 @@ def _get_error_message(
 async def _get_web(url: str, parameters: RequestParameters) -> bytes:
     async with aiohttp.ClientSession() as session:
         async with session.get(
-            url, params=parameters, raise_for_status=True
+            url, params=_cache_busted(url, parameters), raise_for_status=True
         ) as response:
             return await response.read()
+
+
+# ESPN's JSON API sits behind a CDN that says `max-age=10` but serves an
+# expired copy once more while it revalidates: the first request for a URL
+# after its copy goes stale gets that stale copy, and only the request after
+# it gets the refresh. So what a request sees is as old as the previous
+# request for that exact URL -- and nobody else asks for ours. A week of
+# NCAAFB games fetched hourly came back an hour behind: on 2026-10-18 the
+# 18:03Z NFL pull still had the 17:00Z kickoffs as scheduled at 0-0, and a
+# Saturday's games reached the play-by-play store a median 89 minutes after
+# their last play instead of within the hour. Tested directly: a URL read
+# twice 150s apart returned the first read's game clock both times, and a
+# third read seconds later was live.
+#
+# A query parameter ESPN ignores makes every request a URL the CDN hasn't
+# seen, so it goes to the origin and comes back current. Only this host's
+# requests carry it -- it's the one measured, and the www.espn.com pages are
+# only read for games that are long over.
+_CACHE_BUSTED_HOSTS = ("site.api.espn.com",)
+CACHE_BUSTER_PARAM = "_"
+
+
+def _cache_busted(url: str, parameters: RequestParameters) -> RequestParameters:
+    """
+    The parameters to send for `url`: as given, plus a never-repeated
+    `CACHE_BUSTER_PARAM` for the hosts whose CDN serves stale copies.
+
+    Only the request is changed. The local cache file is named in `get` from
+    the parameters as the caller gave them, so a cached response is still
+    found under the same name as before.
+    """
+    if urlsplit(url).hostname not in _CACHE_BUSTED_HOSTS:
+        return parameters
+    return {**(parameters or {}), CACHE_BUSTER_PARAM: time.time_ns()}
 
 
 def _build_param_string(parameters: RequestParameters) -> str:
