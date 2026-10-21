@@ -221,7 +221,10 @@ module "football" {
 # The same chains, run when games go final, so a result's plays -- and
 # cassandra's EPA after them -- don't wait for 8am. Their own job definitions
 # and state machines, because the steps differ: no refresh, since re-fetching
-# the day's games on every run is what the 8am run is for.
+# the day's games on every run is what the 8am run is for, and `games` reads
+# only the weeks with a game from the last twelve hours (`--recent_hours`) --
+# three scoreboard requests for ncaafb rather than the season's 54, which is
+# what lets the watcher start one of these every five minutes.
 #
 # The finals watcher starts these (finals_watcher.tf). They used to run on the
 # hour from noon to 2am, which had a final wait half an hour for its run on
@@ -237,7 +240,7 @@ module "football_intraday" {
   steps = [
     {
       name    = "intraday-games-${each.key}"
-      command = ["games", each.key, var.season_year]
+      command = ["games", each.key, var.season_year, "--recent_hours", "12"]
     },
     {
       name    = "intraday-football-plays-${each.key}"
