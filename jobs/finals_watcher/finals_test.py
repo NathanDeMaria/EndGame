@@ -187,9 +187,52 @@ class TooSoon(unittest.TestCase):
 
         finals.record_started(state, ["1"], SATURDAY_NIGHT)
 
-        self.assertTrue(state.too_soon(SATURDAY_NIGHT + timedelta(minutes=10)))
+        self.assertTrue(state.too_soon(SATURDAY_NIGHT + timedelta(minutes=3)))
+        # The next tick, even one firing a few seconds early, is past it.
+        tick = SATURDAY_NIGHT + timedelta(minutes=5) - timedelta(seconds=5)
+        self.assertFalse(state.too_soon(tick))
         self.assertFalse(state.too_soon(SATURDAY_NIGHT + finals.MIN_GAP))
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NearEnd(unittest.TestCase):
+    def _in(self, period, clock):
+        return Game("1", SATURDAY_NIGHT, "in", False, period, clock)
+
+    def test_the_last_three_minutes_and_overtime_are_near_the_end(self):
+        self.assertTrue(finals.near_end(self._in(4, 179.0)))
+        self.assertTrue(finals.near_end(self._in(5, 600.0)))
+        self.assertFalse(finals.near_end(self._in(4, 400.0)))
+        self.assertFalse(finals.near_end(self._in(3, 30.0)))
+        self.assertFalse(finals.near_end(_game("2", SATURDAY_NIGHT, "post", True)))
+
+    def test_only_the_boards_with_a_close_game_are_reread(self):
+        boards = {
+            "fbs": [self._in(4, 60.0), self._in(2, 300.0)],
+            "fcs": [self._in(3, 60.0)],
+        }
+
+        self.assertEqual(finals.recheck_urls(boards), ["fbs"])
+
+    def test_the_clock_is_parsed_off_the_scoreboard(self):
+        payload = {
+            "events": [
+                {
+                    "id": "1",
+                    "date": "2026-10-18T00:00Z",
+                    "status": {
+                        "period": 4,
+                        "clock": 92.0,
+                        "type": {"state": "in", "completed": False},
+                    },
+                }
+            ]
+        }
+
+        (game,) = finals.parse_scoreboard(payload)
+
+        self.assertEqual((game.period, game.clock), (4, 92.0))
+        self.assertTrue(finals.near_end(game))

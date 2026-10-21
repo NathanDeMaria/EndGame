@@ -67,14 +67,30 @@ REMEMBER = timedelta(days=4)
 # email rather than a blip worth a log line. A tick is five minutes.
 FAILURES_TO_REPORT = 3
 
-# The least time between two runs for one league. A run's first step re-reads
-# the whole season -- 54 scoreboard requests for ncaafb -- and on a Saturday
-# some game goes final in nearly every five minutes from noon to 2am: replaying
-# 2026-10-17's FBS finals through this watcher started a run 50-64 times
-# without a gap, more ESPN reads in a day than the hourly chain made. Fifteen
-# minutes holds it to four an hour, and costs nothing that matters: the edge
-# a run feeds is measured in hours after a final.
-MIN_GAP = timedelta(minutes=15)
+# The least time between two runs for one league. It was fifteen minutes when
+# a run's first step re-read the whole season -- 54 scoreboard requests for
+# ncaafb -- since on a Saturday some game goes final in nearly every five
+# minutes from noon to 2am, and 2026-10-17's FBS finals would have started a
+# run 50-64 times. The chain's `games` step now re-reads only the weeks with
+# a game from the last twelve hours (`games --recent_hours`), three requests
+# for ncaafb, so a run every five minutes is fewer ESPN reads than one every
+# fifteen was. What's left is a little under the tick, so a tick that fires a
+# second early can't be held to the one after; a run still never starts
+# while one is going (`handler._in_flight`). Fifteen minutes did cost
+# something: on 2026-10-20 a Kalshi book was bought out within twenty
+# minutes of the final that moved it.
+MIN_GAP = timedelta(minutes=4)
+
+# A game this close to its end is re-read within the tick rather than at the
+# next one: the last three minutes of the fourth quarter, or overtime. Its
+# final is then seen about a minute after ESPN has it rather than two and a
+# half on average, for a few extra reads of the one scoreboard it's on.
+NEAR_END_CLOCK = 180.0
+RECHECK_EVERY = timedelta(seconds=75)
+# How long a tick keeps re-reading. Less than the tick, so one invocation is
+# done before the next is due -- the function runs one at a time, and a tick
+# that arrives while one is still going is dropped.
+RECHECK_BUDGET = timedelta(seconds=200)
 
 
 @dataclass(frozen=True)
@@ -85,6 +101,10 @@ class Game:
     # game is "post" and not completed.
     state: str
     completed: bool
+    # The quarter (5 and up is overtime) and the seconds left in it. Zero
+    # before kickoff.
+    period: int = 0
+    clock: float = 0.0
 
 
 def scoreboard_urls(league: str, now: datetime) -> list[str]:
@@ -117,6 +137,8 @@ def parse_scoreboard(payload: dict[str, Any]) -> list[Game]:
                 kickoff=_parse_time(event["date"]),
                 state=status.get("state", ""),
                 completed=bool(status.get("completed")),
+                period=int(event["status"].get("period") or 0),
+                clock=float(event["status"].get("clock") or 0.0),
             )
         )
     return games
@@ -168,6 +190,20 @@ class LeagueState:
             self.last_started is not None
             and now - _parse_time(self.last_started) < MIN_GAP
         )
+
+
+def near_end(game: Game) -> bool:
+    """Whether a game being played could be final within a couple of minutes."""
+    if game.state != "in":
+        return False
+    return game.period >= 5 or (game.period == 4 and game.clock <= NEAR_END_CLOCK)
+
+
+def recheck_urls(games_by_url: dict[str, list[Game]]) -> list[str]:
+    """The scoreboards holding a game near its end: the ones worth re-reading."""
+    return sorted(
+        url for url, games in games_by_url.items() if any(near_end(g) for g in games)
+    )
 
 
 def new_finals(games: list[Game], state: LeagueState) -> list[str]:

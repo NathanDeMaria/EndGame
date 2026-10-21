@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
-from endgame.types import Game
+from endgame.types import Game, Season, Week
 
-from .cli import _merge_pulled, _plays_to_pull
+from .cli import _merge_pulled, _plays_to_pull, recent_week_numbers
 
 NOW = datetime(2026, 10, 11, 13, 0, tzinfo=UTC)
 
@@ -64,3 +64,19 @@ def test_an_empty_re_pull_keeps_the_plays_it_already_had() -> None:
         {"game_id": "a", "drives": ["old"]},
         {"game_id": "b", "drives": []},
     ]
+
+
+def test_a_recent_pull_asks_only_for_the_weeks_with_recent_kickoffs() -> None:
+    season = Season(
+        [
+            Week([_game("last-week", 24 * 7)], 7),
+            Week([_game("tonight", 3), _game("saturday", 24 * 3)], 8),
+            Week([_game("next-week", -24 * 5, completed=False)], 9),
+            # The post-season's one source week, filed after the regular's.
+            Week([_game("bowl", 5)], 17),
+        ],
+        2026,
+    )
+    since = NOW - timedelta(hours=12)
+    assert recent_week_numbers(season, since, NOW) == [8, 17]
+    assert recent_week_numbers(season, NOW - timedelta(minutes=1), NOW) == []

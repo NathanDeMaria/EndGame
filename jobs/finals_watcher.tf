@@ -62,9 +62,11 @@ resource "aws_lambda_function" "finals_watcher" {
   source_code_hash = data.archive_file.finals_watcher.output_base64sha256
 
   # A tick is a handful of scoreboard reads and a few Batch calls: about two
-  # seconds. The headroom is for ESPN being slow, which its own 20s timeout
-  # per read bounds.
-  timeout     = 120
+  # seconds -- or, with a game in its last minutes, up to `RECHECK_BUDGET`
+  # (200s) of re-reading it. The rest is headroom for ESPN being slow, which
+  # its own 20s timeout per read bounds, and stays under the five-minute
+  # tick so one invocation ends before the next is due.
+  timeout     = 290
   memory_size = 256
 
   # One tick at a time. Two at once would both see the same new finals and
