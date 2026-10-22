@@ -71,9 +71,9 @@ FAILURES_TO_REPORT = 3
 # a run's first step re-read the whole season -- 54 scoreboard requests for
 # ncaafb -- since on a Saturday some game goes final in nearly every five
 # minutes from noon to 2am, and 2026-10-17's FBS finals would have started a
-# run 50-64 times. The chain's `games` step now re-reads only the weeks with
-# a game from the last twelve hours (`games --recent_hours`), three requests
-# for ncaafb, so a run every five minutes is fewer ESPN reads than one every
+# run 50-64 times. The chain's `games` step now re-reads only the days the
+# last twelve hours span (`games --recent_hours`), three to six requests for
+# ncaafb, so a run every five minutes is fewer ESPN reads than one every
 # fifteen was. What's left is a little under the tick, so a tick that fires a
 # second early can't be held to the one after; a run still never starts
 # while one is going (`handler._in_flight`). Fifteen minutes did cost

@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from endgame.async_tools import apply_in_parallel
 from endgame.date import get_end_year
+from endgame.espn_games import get_games
 from endgame.espn_odds import PRICED_REACH, within_priced_reach
 from endgame.espn_odds import Odds as EspnOdds
 from endgame.football_plays import FootballLeague, get_game_plays
@@ -31,7 +32,6 @@ from endgame.ncaabb.ncaabb import (
 from endgame.ncaabb.ncaabb import SEASON_END as NCAABB_SEASON_END
 from endgame.ncaabb.possession_side import PossessionSide
 from endgame.ncaafb import FIRST_WEEK_ZERO_SEASON, get_ncaafb_odds
-from endgame.ncaafb import N_REGULAR_WEEKS as NCAAFB_REGULAR_WEEKS
 from endgame.ncaafb import SEASON_END as NCAAFB_SEASON_END
 from endgame.ncaafb import SEASON_START as NCAAFB_SEASON_START
 from endgame.ncaafb import get_season as get_ncaafb_season
@@ -43,11 +43,11 @@ from endgame.nhl import NHL, get_nhl_odds, get_nhl_season
 from endgame.types import (
     Game,
     NcaaFbGroup,
-    SeasonType,
     Week,
     group_games_into_weeks,
     iter_weeks,
     merge_weekly_seasons,
+    supersedes,
 )
 from endgame.wnba import WNBA, get_wnba_odds, get_wnba_season
 from fire import Fire
@@ -400,88 +400,133 @@ async def _save_merged(key: str, existing: Season | None, season: Season) -> int
     return after
 
 
-def recent_week_numbers(season: Season, since: datetime, now: datetime) -> list[int]:
-    """
-    The weeks of a stored season, by the number each was fetched under, that
-    hold a game kicked off between `since` and `now`: the weeks a final
-    since `since` can be in.
-    """
-    return sorted(
-        {
-            week.number
-            for week in season.weeks
-            for game in week.games
-            if since <= _kickoff_utc(game) <= now
-        }
-    )
+#: Kickoffs are filed under their Eastern calendar day on ESPN's date
+#: scoreboard: Saturday's 11pm ET kickoff in Honolulu is on Saturday's.
+_EASTERN = ZoneInfo("America/New_York")
+
+#: The scoreboard `groups` a recent ncaafb pull reads, one request a day each:
+#: every division, so a re-read misses nothing the whole pull has.
+_NCAAFB_GROUPS = tuple(group.value for group in NcaaFbGroup)
 
 
-async def _recent_weeks(league: str, year: int, numbers: list[int]) -> Season:
-    """
-    Just `numbers` of a football season, fetched the way the whole-season
-    pull fetches each of its weeks.
+def recent_days(since: datetime, now: datetime) -> list[str]:
+    """ESPN's `dates=` values, Eastern days, that hold every kickoff in [since, now]."""
+    first = since.astimezone(_EASTERN).date()
+    last = now.astimezone(_EASTERN).date()
+    return [
+        (first + timedelta(days=i)).strftime("%Y%m%d")
+        for i in range((last - first).days + 1)
+    ]
 
-    Through endgame's private per-week fetchers, since its public pull is the
-    whole season or nothing. They're pinned with the rest of endgame, so a
-    change to them shows up at a pin bump rather than in a job.
+
+def file_into_weeks(stored: Season, fetched: Iterable[Game]) -> tuple[list[Week], int]:
+    """
+    `fetched` filed under the week the stored season has each game in, and
+    how many it doesn't have at all.
+
+    A day's scoreboard has no week numbers, and a week number is how a
+    game traces back to the whole pull's request -- so a recent pull never
+    makes one up. A game the store doesn't know (a fixture ESPN added since
+    the 8am pull) is left for the next whole pull. Of two copies of a game,
+    `supersedes` keeps one, as every dedupe here does.
+    """
+    week_of = {
+        game.game_id: week.number for week in stored.weeks for game in week.games
+    }
+    kept: dict[str, Game] = {}
+    unknown = set()
+    for game in fetched:
+        if game.game_id not in week_of:
+            unknown.add(game.game_id)
+        elif supersedes(game, kept.get(game.game_id)):
+            kept[game.game_id] = game
+    by_number: dict[int, list[Game]] = {}
+    for game in kept.values():
+        by_number.setdefault(week_of[game.game_id], []).append(game)
+    weeks = [
+        Week(sorted(games, key=lambda g: g.date), number)
+        for number, games in sorted(by_number.items())
+    ]
+    return weeks, len(unknown)
+
+
+async def _recent_days(league: str, stored: Season, days: list[str]) -> Season:
+    """
+    Every game on `days`, read off ESPN's date scoreboard -- the one the
+    finals watcher reads -- and filed under the stored season's weeks.
+
+    Not the week scoreboard the whole pull reads. On 2026-10-21 the watcher
+    saw Sam Houston-New Mexico State final at 03:41Z on the date scoreboard,
+    and the week-8 scoreboard read at 03:43Z, cache buster and all, still
+    had it in progress at a score from before the last touchdown. So the
+    chain that final started saved the game unfinished, its plays weren't
+    pulled, and the picks run behind it held both teams' next games back.
+
+    Each game goes through the same renames the whole pull applies, from
+    endgame's private per-league helpers, pinned with the rest of endgame.
     """
     if league == "ncaafb":
-        from endgame.ncaafb import _get_week, _remove_cross_division_duplicates
+        from endgame.ncaafb import BASE_URL, _rename_teams
 
-        weeks = []
-        for number in numbers:
-            # The post-season is one source week, filed after the regular
-            # season's -- the reverse of what `_get_week` does to it.
-            if number > NCAAFB_REGULAR_WEEKS:
-                asked, kind = number - NCAAFB_REGULAR_WEEKS, SeasonType.post
-            else:
-                asked, kind = number, SeasonType.regular
-            for group in NcaaFbGroup:
-                weeks.append(
-                    await _get_week(year, asked, kind, group, include_unplayed=True)
-                )
-        merged = list(_remove_cross_division_duplicates(weeks))
-        return Season(merged, year, [], NCAAFB_SEASON_START)
+        url, groups, fix = BASE_URL, _NCAAFB_GROUPS, _rename_teams
 
-    from endgame.nfl.games import _get_week as _get_nfl_week
-    from endgame.nfl.games import n_regular_weeks
+        def keep(game: Game) -> bool:
+            return True
 
-    regular = n_regular_weeks(year)
-    nfl_weeks: list[Week] = []
-    for number in numbers:
-        if number > regular:
-            asked, kind = number - regular, SeasonType.post
-        else:
-            asked, kind = number, SeasonType.regular
-        nfl_weeks.append(await _get_nfl_week(year, asked, kind, include_unplayed=True))
-    return Season(nfl_weeks, year)
+    else:
+        from endgame.nfl.games import BASE_URL as NFL_URL
+        from endgame.nfl.games import _get_team, move_teams
+
+        url, groups, fix = NFL_URL, (None,), move_teams
+
+        def keep(game: Game) -> bool:
+            # As the whole pull does: drop what isn't two franchises (the Pro Bowl).
+            return _get_team(game.home) is not None and _get_team(game.away) is not None
+
+    fetched: list[Game] = []
+    for day in days:
+        for group in groups:
+            parameters: dict[str, Any] = dict(
+                lang="en", region="us", calendartype="blacklist", limit=300, dates=day
+            )
+            if group is not None:
+                parameters["groups"] = group
+            found = await get_games(url, parameters, include_unplayed=True)
+            fetched += [fix(game) for game in found if keep(game)]
+    weeks, unknown = file_into_weeks(stored, fetched)
+    if unknown:
+        logger.info(
+            "%d games on %s aren't in the stored season; the next whole pull adds them",
+            unknown,
+            ", ".join(days),
+        )
+    if league == "ncaafb":
+        return Season(weeks, stored.year, [], NCAAFB_SEASON_START)
+    return Season(weeks, stored.year)
 
 
 async def games(league: str, year: int, recent_hours: float | None = None) -> None:
     """
     Pull a league's season and fold it into the bucket's copy.
 
-    --recent_hours=N, for nfl and ncaafb, re-fetches only the weeks that
-    hold a game kicked off in the last N hours -- by the bucket's copy of the
-    schedule -- rather than the whole season. It's for the run the finals
-    watcher starts: what it needs is the final that started it, and the
-    whole ncaafb season is 54 scoreboard requests where its week is three.
-    The 8am chain still pulls whole seasons, which is what picks up a
-    rescheduled game or a fixture ESPN added. With no bucket copy, or no
-    game in the window, this falls back to the whole pull.
+    --recent_hours=N, for nfl and ncaafb, re-reads only the Eastern days
+    the last N hours span, off ESPN's date scoreboard (`_recent_days`), and
+    files each game under the week the bucket's copy has it in, rather than
+    pulling the whole season. It's for the run the finals watcher starts:
+    what it needs is the final that started it, and the whole ncaafb season
+    is 54 scoreboard requests where a day or two is three to six. The 8am
+    chain still pulls whole seasons, which is what picks up a rescheduled
+    game or a fixture ESPN added. With no bucket copy this falls back to
+    the whole pull.
     """
     games_league = _GAMES_LEAGUES[league]
     key = f"seasons/{year}/{league}.pkl"
     existing = await _load_season(_CONFIG.bucket, key)
-    numbers = []
     if recent_hours is not None and existing is not None and league in _WEEKLY:
         now = datetime.now(UTC)
-        numbers = recent_week_numbers(
-            existing, now - timedelta(hours=recent_hours), now
-        )
-    if numbers:
-        logger.info("Pulling %s %d weeks %s only", league, year, numbers)
-        season = await _recent_weeks(league, year, numbers)
+        days = recent_days(now - timedelta(hours=recent_hours), now)
+        logger.info("Pulling %s %d days %s only", league, year, days)
+        season = await _recent_days(league, existing, days)
     else:
         season = await games_league.get_season(
             year, existing if games_league.incremental else None

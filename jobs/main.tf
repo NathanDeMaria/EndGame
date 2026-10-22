@@ -222,9 +222,9 @@ module "football" {
 # cassandra's EPA after them -- don't wait for 8am. Their own job definitions
 # and state machines, because the steps differ: no refresh, since re-fetching
 # the day's games on every run is what the 8am run is for, and `games` reads
-# only the weeks with a game from the last twelve hours (`--recent_hours`) --
-# three scoreboard requests for ncaafb rather than the season's 54, which is
-# what lets the watcher start one of these every five minutes.
+# only the days the last twelve hours span (`--recent_hours`), off ESPN's date
+# scoreboard -- three to six requests for ncaafb rather than the season's 54,
+# which is what lets the watcher start one of these every five minutes.
 #
 # The finals watcher starts these (finals_watcher.tf). They used to run on the
 # hour from noon to 2am, which had a final wait half an hour for its run on
