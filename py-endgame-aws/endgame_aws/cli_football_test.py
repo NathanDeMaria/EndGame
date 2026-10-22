@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from endgame.types import Game, Season, Week
 
-from .cli import _merge_pulled, _plays_to_pull, recent_week_numbers
+from .cli import _merge_pulled, _plays_to_pull, file_into_weeks, recent_days
 
 NOW = datetime(2026, 10, 11, 13, 0, tzinfo=UTC)
 
@@ -66,17 +66,32 @@ def test_an_empty_re_pull_keeps_the_plays_it_already_had() -> None:
     ]
 
 
-def test_a_recent_pull_asks_only_for_the_weeks_with_recent_kickoffs() -> None:
-    season = Season(
+def test_a_recent_pull_reads_the_eastern_days_the_window_spans() -> None:
+    # 13:00Z is 09:00 ET on the 11th; twelve hours back is 21:00 ET on the 10th.
+    assert recent_days(NOW - timedelta(hours=12), NOW) == ["20261010", "20261011"]
+    assert recent_days(NOW - timedelta(hours=2), NOW) == ["20261011"]
+
+
+def test_a_days_games_go_under_the_weeks_the_store_has_them_in() -> None:
+    stored = Season(
         [
-            Week([_game("last-week", 24 * 7)], 7),
-            Week([_game("tonight", 3), _game("saturday", 24 * 3)], 8),
-            Week([_game("next-week", -24 * 5, completed=False)], 9),
+            Week([_game("tonight", 3, completed=False), _game("saturday", 72)], 8),
             # The post-season's one source week, filed after the regular's.
-            Week([_game("bowl", 5)], 17),
+            Week([_game("bowl", 5, completed=False)], 17),
         ],
         2026,
     )
-    since = NOW - timedelta(hours=12)
-    assert recent_week_numbers(season, since, NOW) == [8, 17]
-    assert recent_week_numbers(season, NOW - timedelta(minutes=1), NOW) == []
+    fetched = [
+        _game("tonight", 3),
+        # A stale copy of a game a request has already seen finish.
+        _game("tonight", 3, completed=False),
+        _game("bowl", 5),
+        _game("added-since", 2),
+    ]
+    weeks, unknown = file_into_weeks(stored, fetched)
+    assert [(w.number, [g.game_id for g in w.games]) for w in weeks] == [
+        (8, ["tonight"]),
+        (17, ["bowl"]),
+    ]
+    assert all(g.completed for w in weeks for g in w.games)
+    assert unknown == 1
