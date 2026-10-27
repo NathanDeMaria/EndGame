@@ -691,3 +691,31 @@ def test_odds_params__covers_both_genders() -> None:
         params.gender for params in _odds_params(date(2027, 1, 5), date(2027, 1, 19))
     }
     assert genders == set(NcaabbGender)
+
+
+async def test_odds__womens_games_are_judged_on_a_shorter_reach() -> None:
+    """
+    The women's opener went unpriced a week out while the men's had lines,
+    so each gender hands the price guard its own reach.
+    """
+    reaches = {}
+
+    async def fake_range(url, parameters, **kwargs):
+        reaches[url] = kwargs["priced_reach"]
+        return
+        yield
+
+    with patch.object(ncaabb_module, "get_odds_range", fake_range):
+        [
+            o
+            async for o in ncaabb_module.get_ncaabb_spreads(
+                date(2026, 11, 2), date(2026, 11, 9)
+            )
+        ]
+
+    by_gender = {
+        gender: reaches[ncaabb_module.NCAABB_SCOREBOARD.format(gender.name)]
+        for gender in NcaabbGender
+    }
+    assert by_gender[NcaabbGender.womens] == timedelta(days=2)
+    assert by_gender[NcaabbGender.mens] == ncaabb_module.PRICED_REACH

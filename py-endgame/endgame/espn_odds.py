@@ -76,14 +76,18 @@ def _now() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
-def within_priced_reach(game_date: str, now: datetime) -> bool:
+def within_priced_reach(
+    game_date: str, now: datetime, reach: timedelta = PRICED_REACH
+) -> bool:
     """
     Whether a game is close enough to `now` that ESPN should be pricing it.
 
     `game_date` is ESPN's own ISO-8601 instant (`2026-10-18T17:00Z`). Games
-    already past count, so this only ever excuses the far future.
+    already past count, so this only ever excuses the far future. `reach`
+    is `PRICED_REACH` unless a league's books post later than that; see
+    `get_odds_range`.
     """
-    return datetime.fromisoformat(game_date) <= now + PRICED_REACH
+    return datetime.fromisoformat(game_date) <= now + reach
 
 
 class OddsProblem(Exception):
@@ -207,7 +211,9 @@ def _is_preseason(event: dict) -> bool:
     return (event.get("season") or {}).get("type") == PRESEASON
 
 
-async def _get_odds_page(url: str, parameters: RequestParameters) -> _OddsPage:
+async def _get_odds_page(
+    url: str, parameters: RequestParameters, reach: timedelta = PRICED_REACH
+) -> _OddsPage:
     """
     One scoreboard request, parsed.
     """
@@ -223,7 +229,7 @@ async def _get_odds_page(url: str, parameters: RequestParameters) -> _OddsPage:
         if (
             not _has_kicked_off(competition)
             and not _is_preseason(event)
-            and within_priced_reach(event["date"], now)
+            and within_priced_reach(event["date"], now, reach)
         ):
             unstarted += 1
         event_odds = competition.get("odds")
@@ -252,6 +258,7 @@ async def _get_odds_day(
     url: str,
     base_parameters: Dict,
     day: date,
+    reach: timedelta = PRICED_REACH,
 ) -> _OddsPage:
     """
     One day's priced games.
@@ -279,7 +286,7 @@ async def _get_odds_day(
     parameters["dates"] = day.strftime("%Y%m%d")
     parameters["limit"] = ODDS_PAGE_LIMIT
 
-    page = await _get_odds_page(url, parameters)
+    page = await _get_odds_page(url, parameters, reach)
     if page.events >= ODDS_PAGE_LIMIT:
         raise OddsTruncated(
             f"{url} returned a full {page.events} events for {day} at "
@@ -291,7 +298,7 @@ async def _get_odds_day(
         # the round trip.
         probe = dict(parameters)
         probe["limit"] = ESPN_DEFAULT_LIMIT * 2
-        probe_page = await _get_odds_page(url, probe)
+        probe_page = await _get_odds_page(url, probe, reach)
         if probe_page.events > page.events:
             raise OddsTruncated(
                 f"{url} returned {page.events} events for {day} at "
@@ -311,6 +318,7 @@ async def get_odds_range(
     start: date,
     end: date,
     chunk_days: int = DEFAULT_ODDS_CHUNK_DAYS,
+    priced_reach: timedelta = PRICED_REACH,
 ) -> AsyncIterator[Odds]:
     """
     Every priced game between `start` and `end`, both inclusive.
@@ -330,6 +338,10 @@ async def get_odds_range(
     nothing left for it to size, but dropping the parameter means touching
     five call sites in the same change that unbreaks the jobs. It goes in
     the follow-up, with `chunk_date_range` and `format_dates_param`.
+
+    `priced_reach` is how far ahead `NoPricesFound` expects a line, for a
+    league whose books post later than `PRICED_REACH`. It narrows the guard
+    and nothing else: every priced game in the range is still returned.
     """
     base = dict(base_parameters or {})
     # `date_range` stops before its end; this range includes it.
@@ -339,7 +351,7 @@ async def get_odds_range(
     seen_priced = 0
     async for day_odds in apply_in_parallel(
         _get_odds_day,
-        [(url, base, day) for day in days],
+        [(url, base, day, priced_reach) for day in days],
         max_parallel=ODDS_MAX_PARALLEL_DAYS,
     ):
         seen_events += day_odds.events
@@ -359,7 +371,7 @@ async def get_odds_range(
         raise NoPricesFound(
             f"{url} listed {seen_events} events between {start} and {end}, "
             f"{seen_unstarted} of them not yet kicked off, outside the preseason "
-            f"and within {PRICED_REACH.days} days, "
+            f"and within {priced_reach.days} days, "
             f"and priced none of "
             f"them; the odds are missing or have moved"
         )

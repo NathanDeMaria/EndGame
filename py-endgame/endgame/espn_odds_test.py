@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
@@ -551,3 +551,52 @@ def test_the_reach_is_measured_from_now() -> None:
     assert not espn_odds_module.within_priced_reach("2026-10-13T13:01Z", _MONDAY)
     assert espn_odds_module.within_priced_reach("2026-09-01T00:00Z", _MONDAY)
     assert PRICED_REACH.days == 8
+
+
+async def test_a_shorter_reach_excuses_a_slate_its_books_have_not_posted() -> None:
+    """
+    The women's ncaabb opener: a week out, a full slate listed and nothing
+    priced. A league whose books post late narrows the reach rather than
+    failing every pull until they do.
+    """
+    unpriced = [
+        _event(str(i), "2026-10-11", priced=False)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    fake = _FakeEspn({"20261011": unpriced})
+
+    with _patch_espn(fake), _patch_now(_MONDAY):
+        odds = [
+            o
+            async for o in get_odds_range(
+                _URL,
+                start=date(2026, 10, 11),
+                end=date(2026, 10, 11),
+                priced_reach=timedelta(days=2),
+            )
+        ]
+
+    assert odds == []
+
+
+async def test_a_shorter_reach_still_raises_on_tomorrows_slate() -> None:
+    unpriced = [
+        _event(str(i), "2026-10-06", priced=False)
+        for i in range(MIN_EVENTS_TO_EXPECT_A_PRICE)
+    ]
+    fake = _FakeEspn({"20261006": unpriced})
+
+    with (
+        _patch_espn(fake),
+        _patch_now(_MONDAY),
+        pytest.raises(NoPricesFound, match="within 2 days"),
+    ):
+        [
+            o
+            async for o in get_odds_range(
+                _URL,
+                start=date(2026, 10, 6),
+                end=date(2026, 10, 6),
+                priced_reach=timedelta(days=2),
+            )
+        ]
