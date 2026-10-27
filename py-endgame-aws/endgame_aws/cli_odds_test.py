@@ -6,6 +6,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
+from endgame.espn_odds import NoPricesFound, PartlyUnpriced
 
 from . import cli as cli_module
 from .cli import OddsCoverageDropped, _check_odds_coverage
@@ -163,3 +164,58 @@ async def test_a_date_inside_the_priced_reach_going_dark_still_raises() -> None:
                 _records("2026-10-11", 2),
                 _SEASON_MONDAY,
             )
+
+
+def _patch_odds_pull(get_odds, saved: dict):
+    """
+    `odds` with its league's pull swapped for `get_odds`, the coverage
+    check waved through, and every save landing in `saved`.
+    """
+
+    async def fake_save(bucket, key, data):
+        saved[key] = json.loads(data)
+
+    async def no_check(*args, **kwargs):
+        return None
+
+    league = cli_module._OddsLeague(get_odds, cli_module.NCAABB_SEASON_END)
+    return patch.multiple(
+        cli_module,
+        _ODDS_LEAGUES={"ncaabb": league},
+        save_data_to_s3=fake_save,
+        _check_odds_coverage=no_check,
+    )
+
+
+async def test_a_partly_unpriced_pull_saves_what_it_found_then_fails() -> None:
+    """
+    2026-10-26: the women's opener went unpriced and the men's lines went
+    unsaved with it. The snapshot keeps the men's; the job still fails.
+    """
+
+    async def mens_only(start, end):
+        yield {"competition_id": "mens", "date": "2026-11-02T23:00Z"}
+        raise PartlyUnpriced([NoPricesFound("womens dark")])
+
+    saved: dict = {}
+    with _patch_odds_pull(mens_only, saved):
+        with pytest.raises(PartlyUnpriced, match="womens dark"):
+            await cli_module.odds("ncaabb", "near", "2026-10-26", "09-30")
+
+    assert saved == {
+        "odds/ncaabb/2026-10-26/09-30-near.json": [
+            {"competition_id": "mens", "date": "2026-11-02T23:00Z"}
+        ]
+    }
+
+
+async def test_a_wholly_unpriced_pull_saves_nothing() -> None:
+    async def dark(start, end):
+        raise NoPricesFound("everything dark")
+        yield
+
+    saved: dict = {}
+    with _patch_odds_pull(dark, saved), pytest.raises(NoPricesFound):
+        await cli_module.odds("ncaabb", "near", "2026-10-26", "09-30")
+
+    assert saved == {}

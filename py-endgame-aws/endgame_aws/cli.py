@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from endgame.async_tools import apply_in_parallel
 from endgame.date import get_end_year
 from endgame.espn_games import get_games
-from endgame.espn_odds import PRICED_REACH, within_priced_reach
+from endgame.espn_odds import PRICED_REACH, PartlyUnpriced, within_priced_reach
 from endgame.espn_odds import Odds as EspnOdds
 from endgame.football_plays import FootballLeague, get_game_plays
 from endgame.ncaabb import NcaabbGender, get_plays_for_day
@@ -869,7 +869,16 @@ async def odds(
     parsed_time = time if time is not None else now.strftime("%H-%M")
     odds_league = _ODDS_LEAGUES[league]
     start, end = _odds_window(odds_league, horizon, parsed_date)
-    league_odds = [o async for o in odds_league.get_odds(start, end)]
+    league_odds = []
+    # A league pulled as independent ranges (ncaabb, a range per gender)
+    # raises this after the last of them, so what came back is every price
+    # the pull found: save it, then fail. See `PartlyUnpriced`.
+    unpriced: PartlyUnpriced | None = None
+    try:
+        async for odd in odds_league.get_odds(start, end):
+            league_odds.append(odd)
+    except PartlyUnpriced as problem:
+        unpriced = problem
     key = f"odds/{league}/{parsed_date}/{parsed_time}-{horizon}.json"
     # The read time the key records, not the wall clock, so a backfilled
     # `--day --time` pull is judged as of the moment it claims to be.
@@ -899,6 +908,8 @@ async def odds(
         parsed_date,
         parsed_time,
     )
+    if unpriced is not None:
+        raise unpriced
 
 
 def _play_days_to_pull(
