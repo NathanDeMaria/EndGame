@@ -9,7 +9,7 @@ from ..async_tools import apply_in_parallel
 from ..constants import DEFAULT_LOOKAHEAD_DAYS, ESPN_SPORTS_API_BASE
 from ..date import clamp_to_window, date_range, get_end_year
 from ..espn_games import get_games, save_seasons
-from ..espn_odds import Odds, get_odds_range
+from ..espn_odds import PRICED_REACH, Odds, get_odds_range
 from ..season_cache import SeasonCache
 from ..types import Game, Season, Week, supersedes
 from ..web import RequestParameters
@@ -269,6 +269,22 @@ async def get_ncaabb_games(
 # every other league then raises.
 ODDS_CHUNK_DAYS = 14
 
+# How far ahead `NoPricesFound` expects a line on each gender's games.
+#
+# Women's books post far later than the shared `PRICED_REACH`. On
+# 2026-10-26, a week before the opener, ESPN listed the Nov 2 slate -- 164
+# women's games -- with no price on any of them, while the men's slate had a
+# handful of marquee games priced; and every women's `near` and `season`
+# pull failed on it, taking the men's lines down with them. In season a
+# range always holds tomorrow's slate, so two days still asks the guard's
+# question of a few hundred games; it only stops expecting a line a week
+# out. Two is a guess at the women's lead, not a measurement: check it
+# against the first pulls that price the opener.
+PRICED_REACH_BY_GENDER = {
+    NcaabbGender.mens: PRICED_REACH,
+    NcaabbGender.womens: timedelta(days=2),
+}
+
 
 class _OddsParams(NamedTuple):
     """
@@ -300,6 +316,7 @@ async def _get_ncaabb_odds(
         start=start,
         end=end,
         chunk_days=ODDS_CHUNK_DAYS,
+        priced_reach=PRICED_REACH_BY_GENDER[gender],
     )
     async for odd in odds:
         yield odd
