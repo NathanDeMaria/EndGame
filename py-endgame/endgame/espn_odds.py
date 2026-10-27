@@ -129,6 +129,27 @@ class NoPricesFound(OddsProblem):
     """
 
 
+class PartlyUnpriced(NoPricesFound):
+    """Some of a pull's ranges priced nothing, and the rest of the pull finished.
+
+    For a pull made of independent ranges -- ncaabb's are one per gender --
+    where one range's `NoPricesFound` shouldn't cost the others theirs. On
+    2026-10-26 the women's opener went unpriced a week out, the women's
+    range raised first, and the men's lines, which ESPN had, were never
+    asked for.
+
+    Raised only after the last range, so what the pull yielded before it is
+    every price the pull found: a range that raised `NoPricesFound` had no
+    price to lose. A caller that writes snapshots can save what it has and
+    still fail, which is the point -- the snapshot is complete, and the job
+    still says a league went dark.
+    """
+
+    def __init__(self, problems: List[NoPricesFound]):
+        self.problems = problems
+        super().__init__("; ".join(str(problem) for problem in problems))
+
+
 class OddsTruncated(OddsProblem):
     """ESPN gave back less than a day, and said nothing about it.
 

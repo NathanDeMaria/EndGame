@@ -9,6 +9,7 @@ from yarl import URL
 
 from ..constants import DEFAULT_LOOKAHEAD_DAYS
 from ..date import date_range, is_between_dates
+from ..espn_odds import NoPricesFound, OddsTruncated, PartlyUnpriced
 from ..season_cache import SeasonCache
 from ..types import group_games_into_weeks
 from . import ncaabb as ncaabb_module
@@ -719,3 +720,58 @@ async def test_odds__womens_games_are_judged_on_a_shorter_reach() -> None:
     }
     assert by_gender[NcaabbGender.womens] == timedelta(days=2)
     assert by_gender[NcaabbGender.mens] == ncaabb_module.PRICED_REACH
+
+
+def _fake_odds_range(raising: dict):
+    """
+    Stands in for `get_odds_range`: each gender's scoreboard yields one odd
+    named for it, unless `raising` has an exception for that gender.
+    """
+
+    async def fake_range(url, parameters, **kwargs):
+        for gender in NcaabbGender:
+            if url == ncaabb_module.NCAABB_SCOREBOARD.format(gender.name):
+                if gender in raising:
+                    raise raising[gender]
+                yield {"competition_id": gender.name}
+
+    return patch.object(ncaabb_module, "get_odds_range", fake_range)
+
+
+async def _spreads(start: date, end: date) -> list:
+    return [o async for o in ncaabb_module.get_ncaabb_spreads(start, end)]
+
+
+async def test_odds__an_unpriced_womens_slate_still_pulls_the_mens() -> None:
+    """
+    2026-10-26: the women's opener went unpriced, the women's range raised
+    first, and the men's lines were never asked for.
+    """
+    got = []
+    with _fake_odds_range({NcaabbGender.womens: NoPricesFound("womens dark")}):
+        with pytest.raises(PartlyUnpriced, match="womens dark") as raised:
+            async for odd in ncaabb_module.get_ncaabb_spreads(
+                date(2026, 11, 2), date(2026, 11, 9)
+            ):
+                got.append(odd)
+
+    assert got == [{"competition_id": "mens"}]
+    assert len(raised.value.problems) == 1
+
+
+async def test_odds__every_range_unpriced_raises_as_before() -> None:
+    dark = {gender: NoPricesFound(gender.name) for gender in NcaabbGender}
+    with _fake_odds_range(dark), pytest.raises(NoPricesFound) as raised:
+        await _spreads(date(2026, 11, 2), date(2026, 11, 9))
+
+    assert not isinstance(raised.value, PartlyUnpriced)
+
+
+async def test_odds__a_truncated_range_still_stops_the_pull() -> None:
+    """
+    Only an unpriced range is safe to step past: a truncated one yielded
+    part of itself, and a snapshot with half a day in it looks whole.
+    """
+    with _fake_odds_range({NcaabbGender.womens: OddsTruncated("cut")}):
+        with pytest.raises(OddsTruncated):
+            await _spreads(date(2026, 11, 2), date(2026, 11, 9))

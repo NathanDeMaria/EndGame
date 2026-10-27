@@ -9,7 +9,13 @@ from ..async_tools import apply_in_parallel
 from ..constants import DEFAULT_LOOKAHEAD_DAYS, ESPN_SPORTS_API_BASE
 from ..date import clamp_to_window, date_range, get_end_year
 from ..espn_games import get_games, save_seasons
-from ..espn_odds import PRICED_REACH, Odds, get_odds_range
+from ..espn_odds import (
+    PRICED_REACH,
+    NoPricesFound,
+    Odds,
+    PartlyUnpriced,
+    get_odds_range,
+)
 from ..season_cache import SeasonCache
 from ..types import Game, Season, Week, supersedes
 from ..web import RequestParameters
@@ -346,7 +352,22 @@ def _odds_params(start: date, end: date) -> List[_OddsParams]:
 async def get_ncaabb_spreads(start: date, end: date) -> AsyncIterator[Odds]:
     """
     Get the odds on every NCAABB game between `start` and `end`, inclusive.
+
+    Each gender and competition is its own range, and one that prices
+    nothing doesn't stop the rest: they all run, and the `NoPricesFound`s
+    come out at the end as one `PartlyUnpriced`. If every range raised there
+    was nothing to keep, and the first one is raised as it was.
     """
-    for params in _odds_params(start, end):
-        async for odd in _get_ncaabb_odds(*params):
-            yield odd
+    params = _odds_params(start, end)
+    problems: List[NoPricesFound] = []
+    for param in params:
+        try:
+            async for odd in _get_ncaabb_odds(*param):
+                yield odd
+        except NoPricesFound as problem:
+            logger.warning("%s", problem)
+            problems.append(problem)
+    if problems and len(problems) == len(params):
+        raise problems[0]
+    if problems:
+        raise PartlyUnpriced(problems)
