@@ -19,7 +19,12 @@ dataclasses-json = ">=0.5.7,<1.0"
 # that turns a game_id filter into byte ranges, and its own S3 filesystem.
 # No pandas -- the schema in `pbp_transform` is a pyarrow one, because most
 # of these columns are nullable ints and pandas casts those to float64.
-pyarrow = "^25.0"
+#
+# No upper bound: a library's caret cap holds every consumer back with it, and
+# pyarrow 25 has no wheels for Python 3.15 -- `^25.0` kept lucky-ones and
+# cassandra from installing on it at all. Each consumer's lock file is what
+# pins the version it actually runs.
+pyarrow = ">=25.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"
