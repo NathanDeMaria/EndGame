@@ -220,11 +220,21 @@ module "football" {
 
 # The same chains, run when games go final, so a result's plays -- and
 # cassandra's EPA after them -- don't wait for 8am. Their own job definitions
-# and state machines, because the steps differ: no refresh, since re-fetching
-# the day's games on every run is what the 8am run is for, and `games` reads
-# only the days the last twelve hours span (`--recent_hours`), off ESPN's date
-# scoreboard -- three to six requests for ncaafb rather than the season's 54,
-# which is what lets the watcher start one of these every five minutes.
+# and state machines, because the steps differ: `games` reads only the days
+# the last twelve hours span (`--recent_hours`), off ESPN's date scoreboard --
+# three to six requests for ncaafb rather than the season's 54, which is what
+# lets the watcher start one of these every five minutes -- and the plays pull
+# re-reads only the games that kicked off in those twelve hours.
+#
+# That re-read is what makes "within minutes" true. ESPN calls a game final
+# before its play feed is finished: on 2026-10-31 a run stored Washington @
+# Nebraska with no plays three minutes after its final, the game's own run
+# then skipped it as already stored, and its EPA waited for 8am; 29 of the
+# 69 games first stored that Saturday were a few plays short, Illinois @
+# Maryland without its game-winning field goal. Each run re-reading the last
+# twelve hours' finals picks up what the feed added since. It's cheap: the
+# 8am run re-reads 301 games in five seconds, and `_merge_pulled` never lets
+# an empty re-pull replace plays already stored.
 #
 # The finals watcher starts these (finals_watcher.tf). They used to run on the
 # hour from noon to 2am, which had a final wait half an hour for its run on
@@ -244,7 +254,7 @@ module "football_intraday" {
     },
     {
       name    = "intraday-football-plays-${each.key}"
-      command = ["football_plays", each.key, var.season_year]
+      command = ["football_plays", each.key, var.season_year, "--refresh_hours=12"]
     },
     {
       name    = "intraday-process-football-plays-${each.key}"
