@@ -1128,8 +1128,9 @@ async def football_plays(
     --refresh_hours=N is the lighter version of that, for a pull that runs
     soon after games end: it re-fetches the finished games that kicked off in
     the last N hours even when they're stored, and keeps everything else. The
-    daily chain passes it so the morning run re-reads what the hourly runs
-    caught minutes after a final (see `_plays_to_pull`).
+    finals chain passes 12, so each run re-reads the evening's finals, whose
+    feeds ESPN is often still finishing when a game goes final; the daily
+    chain passes 36, a morning re-read of everything (see `_plays_to_pull`).
 
     Only finished games are asked for. An unfinished one has partial
     play-by-play at best, and storing that would mark it done at whatever
