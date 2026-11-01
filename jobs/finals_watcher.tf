@@ -17,13 +17,22 @@ locals {
 
   # What the watcher needs per league: the chain to start, and every job that
   # writes the league's plays -- the 8am chain's as well as the chain's own,
-  # since either one running is a reason not to start another.
+  # since either one running is a reason not to start another -- and
+  # cassandra's sweep after them. The sweep rewrites the whole EPA index from
+  # the processed plays, so a chain started while it's still queued or running
+  # can end with two sweeps overlapping and the one that read the older plays
+  # writing last. Every chain re-reads the last twelve hours' finals, so
+  # waiting on it loses nothing; it costs the next final the sweep's half a
+  # minute. The name is cassandra's (its EventBridge target, same job queue);
+  # if it's renamed there, it has to be here too. Its picks job isn't listed:
+  # it only reads, and it takes its own lock.
   finals_watcher_leagues = {
     for league in local.football_leagues : league => {
       state_machine_arn = module.football_intraday[league].state_machine_arn
       job_names = concat(
         module.football_intraday[league].job_names,
         module.football[league].job_names,
+        ["cassandra-sweeps-after-finals-${league}"],
       )
     }
   }
