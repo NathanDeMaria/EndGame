@@ -540,8 +540,8 @@ python-dateutil = "^2.8.2"
 [package.source]
 type = "git"
 url = "https://github.com/NathanDeMaria/EndGame.git"
-reference = "d92745dbec14a76f5b694a914051b7b5e928caba"
-resolved_reference = "d92745dbec14a76f5b694a914051b7b5e928caba"
+reference = "a909d98f16a182d72d62eec72198e417c91e36f2"
+resolved_reference = "a909d98f16a182d72d62eec72198e417c91e36f2"
 subdirectory = "py-endgame"
 
 [[package]]
