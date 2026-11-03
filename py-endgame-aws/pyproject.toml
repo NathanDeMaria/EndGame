@@ -12,7 +12,7 @@ python = "^3.12"
 fire = ">=0.4.0,<1.0"
 aiobotocore = "^3.9.0"
 # Git for pushed commits, relative install for local development
-endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "d92745dbec14a76f5b694a914051b7b5e928caba", subdirectory = "py-endgame"}
+endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "a909d98f16a182d72d62eec72198e417c91e36f2", subdirectory = "py-endgame"}
 # endgame = {path = "../py-endgame", develop = true}
 dataclasses-json = ">=0.5.7,<1.0"
 # The processed play-by-play layer: the parquet writer, the dataset reader
