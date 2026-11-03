@@ -694,34 +694,6 @@ def test_odds_params__covers_both_genders() -> None:
     assert genders == set(NcaabbGender)
 
 
-async def test_odds__womens_games_are_judged_on_a_shorter_reach() -> None:
-    """
-    The women's opener went unpriced a week out while the men's had lines,
-    so each gender hands the price guard its own reach.
-    """
-    reaches = {}
-
-    async def fake_range(url, parameters, **kwargs):
-        reaches[url] = kwargs["priced_reach"]
-        return
-        yield
-
-    with patch.object(ncaabb_module, "get_odds_range", fake_range):
-        [
-            o
-            async for o in ncaabb_module.get_ncaabb_spreads(
-                date(2026, 11, 2), date(2026, 11, 9)
-            )
-        ]
-
-    by_gender = {
-        gender: reaches[ncaabb_module.NCAABB_SCOREBOARD.format(gender.name)]
-        for gender in NcaabbGender
-    }
-    assert by_gender[NcaabbGender.womens] == timedelta(days=2)
-    assert by_gender[NcaabbGender.mens] == ncaabb_module.PRICED_REACH
-
-
 def _fake_odds_range(raising: dict):
     """
     Stands in for `get_odds_range`: each gender's scoreboard yields one odd
@@ -747,15 +719,31 @@ async def test_odds__an_unpriced_womens_slate_still_pulls_the_mens() -> None:
     2026-10-26: the women's opener went unpriced, the women's range raised
     first, and the men's lines were never asked for.
     """
-    got = []
     with _fake_odds_range({NcaabbGender.womens: NoPricesFound("womens dark")}):
-        with pytest.raises(PartlyUnpriced, match="womens dark") as raised:
+        got = await _spreads(date(2026, 11, 2), date(2026, 11, 9))
+
+    assert got == [{"competition_id": "mens"}]
+
+
+async def test_odds__unpriced_womens_games_are_fine_when_the_mens_are_priced() -> None:
+    """
+    2026-11-03: ESPN priced none of the 77 women's games inside two days,
+    and the men's lines in the same pull showed the feed was fine.
+    """
+    with _fake_odds_range({NcaabbGender.womens: NoPricesFound("womens dark")}):
+        await _spreads(date(2026, 11, 2), date(2026, 11, 9))
+
+
+async def test_odds__unpriced_mens_games_still_fail_the_pull() -> None:
+    got = []
+    with _fake_odds_range({NcaabbGender.mens: NoPricesFound("mens dark")}):
+        with pytest.raises(PartlyUnpriced, match="mens dark") as raised:
             async for odd in ncaabb_module.get_ncaabb_spreads(
                 date(2026, 11, 2), date(2026, 11, 9)
             ):
                 got.append(odd)
 
-    assert got == [{"competition_id": "mens"}]
+    assert got == [{"competition_id": "womens"}]
     assert len(raised.value.problems) == 1
 
 

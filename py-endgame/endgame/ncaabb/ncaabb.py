@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from logging import getLogger
-from typing import AsyncIterator, Iterable, List, NamedTuple
+from typing import AsyncIterator, Iterable, List, NamedTuple, Tuple
 
 import aiohttp
 
@@ -10,7 +10,6 @@ from ..constants import DEFAULT_LOOKAHEAD_DAYS, ESPN_SPORTS_API_BASE
 from ..date import clamp_to_window, date_range, get_end_year
 from ..espn_games import get_games, save_seasons
 from ..espn_odds import (
-    PRICED_REACH,
     NoPricesFound,
     Odds,
     PartlyUnpriced,
@@ -275,21 +274,17 @@ async def get_ncaabb_games(
 # every other league then raises.
 ODDS_CHUNK_DAYS = 14
 
-# How far ahead `NoPricesFound` expects a line on each gender's games.
+# Women's games ESPN mostly doesn't price, so a women's range that priced
+# nothing says nothing about the feed. On the 2026 opener (Nov 2) it priced
+# 1-3 of 164 women's games all day and none of the 77 inside the next two
+# days, and last season it priced 0-5 women's games a day until the NCAA
+# tournament (Jan 28: 0, Feb 14: 2, Mar 5: 5; Mar 20: 32). No reach or
+# threshold separates that from a renamed key.
 #
-# Women's books post far later than the shared `PRICED_REACH`. On
-# 2026-10-26, a week before the opener, ESPN listed the Nov 2 slate -- 164
-# women's games -- with no price on any of them, while the men's slate had a
-# handful of marquee games priced; and every women's `near` and `season`
-# pull failed on it, taking the men's lines down with them. In season a
-# range always holds tomorrow's slate, so two days still asks the guard's
-# question of a few hundred games; it only stops expecting a line a week
-# out. Two is a guess at the women's lead, not a measurement: check it
-# against the first pulls that price the opener.
-PRICED_REACH_BY_GENDER = {
-    NcaabbGender.mens: PRICED_REACH,
-    NcaabbGender.womens: timedelta(days=2),
-}
+# The men's range answers the guard's question for both: the two genders are
+# one scoreboard with one schema, so men's lines in the same pull mean the
+# parse still finds prices. A women's `NoPricesFound` only counts when the
+# men's priced nothing too.
 
 
 class _OddsParams(NamedTuple):
@@ -322,7 +317,6 @@ async def _get_ncaabb_odds(
         start=start,
         end=end,
         chunk_days=ODDS_CHUNK_DAYS,
-        priced_reach=PRICED_REACH_BY_GENDER[gender],
     )
     async for odd in odds:
         yield odd
@@ -357,17 +351,28 @@ async def get_ncaabb_spreads(start: date, end: date) -> AsyncIterator[Odds]:
     nothing doesn't stop the rest: they all run, and the `NoPricesFound`s
     come out at the end as one `PartlyUnpriced`. If every range raised there
     was nothing to keep, and the first one is raised as it was.
+
+    A women's range that priced nothing is let off when a men's range priced
+    something; see the note above `_OddsParams`.
     """
     params = _odds_params(start, end)
-    problems: List[NoPricesFound] = []
+    problems: List[Tuple[NcaabbGender, NoPricesFound]] = []
+    mens_priced = False
     for param in params:
         try:
             async for odd in _get_ncaabb_odds(*param):
+                mens_priced = mens_priced or param.gender is NcaabbGender.mens
                 yield odd
         except NoPricesFound as problem:
             logger.warning("%s", problem)
-            problems.append(problem)
+            problems.append((param.gender, problem))
     if problems and len(problems) == len(params):
-        raise problems[0]
+        raise problems[0][1]
+    if mens_priced:
+        problems = [
+            (gender, problem)
+            for gender, problem in problems
+            if gender is not NcaabbGender.womens
+        ]
     if problems:
-        raise PartlyUnpriced(problems)
+        raise PartlyUnpriced([problem for _, problem in problems])
