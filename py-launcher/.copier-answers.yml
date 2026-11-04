@@ -1,0 +1,9 @@
+# Changes here will be overwritten by Copier
+_commit: v1.1.0
+_src_path: gh:NathanDeMaria/mirrorball
+aws: true
+ci_workflow: false
+description: EndGame Launcher Application
+kind: app
+module_name: endgame_launcher
+project_name: endgame-launcher
