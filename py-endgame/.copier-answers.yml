@@ -1,0 +1,9 @@
+# Changes here will be overwritten by Copier
+_commit: v1.1.0
+_src_path: gh:NathanDeMaria/mirrorball
+aws: false
+ci_workflow: false
+description: Reads and caches ESPN games, plays and odds
+kind: library
+module_name: endgame
+project_name: endgame
