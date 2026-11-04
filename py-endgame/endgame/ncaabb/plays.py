@@ -1,6 +1,7 @@
 import datetime
 import json
-from typing import AsyncIterator, TypedDict
+from collections.abc import AsyncIterator
+from typing import TypedDict
 
 import aiohttp
 from bs4 import BeautifulSoup

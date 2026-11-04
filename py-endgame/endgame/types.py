@@ -1,19 +1,14 @@
+from collections.abc import Iterable, Iterator
 from datetime import date, datetime, timedelta
 from enum import Enum
 from itertools import groupby
 from typing import (
     Any,
-    Dict,
-    Iterable,
-    Iterator,
-    List,
     NamedTuple,
-    Optional,
-    Tuple,
 )
 
 # The (month, day) of `year` that a season's week numbering counts from
-SeasonStart = Tuple[int, int]
+SeasonStart = tuple[int, int]
 
 
 class Game(NamedTuple):
@@ -56,13 +51,13 @@ class Game(NamedTuple):
     status: str = ""
 
     @property
-    def column_names(self) -> List[str]:
+    def column_names(self) -> list[str]:
         """
         Column names, in case we want to put this in a .csv
         """
         return list(self.to_dict().keys())
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """
         Convert game to a dictionary
         """
@@ -75,11 +70,11 @@ class Week(NamedTuple):
     A set of games in the same week/round of a league
     """
 
-    games: List[Game]
+    games: list[Game]
     number: int
 
     @property
-    def games_in_order(self) -> List[Game]:
+    def games_in_order(self) -> list[Game]:
         """
         The games, sorted chronologically.
 
@@ -90,14 +85,14 @@ class Week(NamedTuple):
         return sorted(self.games, key=lambda g: g.date)
 
     @property
-    def start(self) -> Optional[datetime]:
+    def start(self) -> datetime | None:
         """
         When the first game of the week happened, or None if there are no games.
         """
         return min((g.date for g in self.games), default=None)
 
     @property
-    def end(self) -> Optional[datetime]:
+    def end(self) -> datetime | None:
         """
         When the last game of the week happened, or None if there are no games.
         """
@@ -147,10 +142,10 @@ class Season(NamedTuple):
     A season of competitions for a league
     """
 
-    weeks: List[Week]
+    weeks: list[Week]
     year: int
     # This is either DayParams (basketball) or WeekParams in practice
-    trouble_params: Optional[List] = None
+    trouble_params: list | None = None
     # When set, `.weeks` is only a record of how the games were fetched, and
     # the chronological view of the season (`calendar_weeks`, `iter_weeks`)
     # is rebuilt from the game dates, counting from this (month, day).
@@ -158,10 +153,10 @@ class Season(NamedTuple):
     # Leagues whose source week numbers are already chronological (the NFL,
     # whose weeks run Thursday-Monday) leave this unset and are walked in
     # their own numbering.
-    season_start: Optional[SeasonStart] = None
+    season_start: SeasonStart | None = None
 
     @property
-    def weeks_in_order(self) -> List[Week]:
+    def weeks_in_order(self) -> list[Week]:
         """
         The weeks as fetched, sorted by when their first game happened.
 
@@ -179,7 +174,7 @@ class Season(NamedTuple):
         return sorted(self.weeks, key=_week_sort_key)
 
     @property
-    def calendar_weeks(self) -> List[Week]:
+    def calendar_weeks(self) -> list[Week]:
         """
         Every game in the season, regrouped into Monday-Sunday calendar
         weeks numbered from `season_start`.
@@ -199,14 +194,14 @@ class Season(NamedTuple):
         # cross-division matchup comes back under both divisions), and the
         # copies aren't guaranteed to be identical -- `supersedes` picks
         # which one stands.
-        games: Dict[str, Game] = {}
+        games: dict[str, Game] = {}
         for week in self.weeks:
             for game in week.games:
                 if supersedes(game, games.get(game.game_id)):
                     games[game.game_id] = game
         return group_games_into_weeks(games.values(), self.year, self.season_start)
 
-    def with_season_start(self, season_start: SeasonStart) -> "Season":
+    def with_season_start(self, season_start: SeasonStart) -> Season:
         """
         A copy of this season tagged with the (month, day) its week
         numbering counts from.
@@ -219,7 +214,7 @@ class Season(NamedTuple):
         return self._replace(season_start=season_start)
 
 
-def _week_sort_key(week: Week) -> "tuple[int, Any]":
+def _week_sort_key(week: Week) -> tuple[int, Any]:
     start = week.start
     if start is None:
         # Tuples compare left-to-right, so the leading 0/1 keeps these
@@ -249,7 +244,7 @@ def _week_number(week_end: date, year: int, season_start: SeasonStart) -> int:
 
 def group_games_into_weeks(
     games: Iterable[Game], year: int, season_start: SeasonStart
-) -> List[Week]:
+) -> list[Week]:
     """
     Group games into Monday-Sunday weeks, numbered from the season's start.
 
@@ -265,7 +260,7 @@ def group_games_into_weeks(
     ]
 
 
-def supersedes(new: Game, old: Optional[Game]) -> bool:
+def supersedes(new: Game, old: Game | None) -> bool:
     """
     Whether `new` should replace `old` as the copy of a game to keep.
 
@@ -289,7 +284,7 @@ def supersedes(new: Game, old: Optional[Game]) -> bool:
     return new.completed or not old.completed
 
 
-def merge_weekly_seasons(seasons: List[Season]) -> Season:
+def merge_weekly_seasons(seasons: list[Season]) -> Season:
     """
     Fold seasons of the same year together, keeping the best copy of a
     game that shows up in more than one of them.
@@ -312,7 +307,7 @@ def merge_weekly_seasons(seasons: List[Season]) -> Season:
     """
     assert all(s.year == seasons[0].year for s in seasons)
 
-    latest: Dict[str, Tuple[int, Game]] = {}
+    latest: dict[str, tuple[int, Game]] = {}
     for season in seasons:
         for week in season.weeks:
             for game in week.games:
@@ -320,7 +315,7 @@ def merge_weekly_seasons(seasons: List[Season]) -> Season:
                 if supersedes(game, previous[1] if previous else None):
                     latest[game.game_id] = (week.number, game)
 
-    by_number: Dict[int, List[Game]] = {}
+    by_number: dict[int, list[Game]] = {}
     for number, game in latest.values():
         by_number.setdefault(number, []).append(game)
 
@@ -328,7 +323,7 @@ def merge_weekly_seasons(seasons: List[Season]) -> Season:
     # (SeasonType, NcaaFbGroup), and enums don't order, so sorting them
     # raises. This dedupes and keeps a stable order without asking them to
     # compare.
-    trouble: Dict[Any, None] = {}
+    trouble: dict[Any, None] = {}
     for season in seasons:
         for param in season.trouble_params or []:
             trouble[param] = None
@@ -359,7 +354,7 @@ class OverlappingWeeksError(ValueError):
     """
 
 
-def check_weeks_dont_overlap(weeks: List[Week]) -> None:
+def check_weeks_dont_overlap(weeks: list[Week]) -> None:
     """
     Check that no two weeks cover overlapping stretches of time.
 

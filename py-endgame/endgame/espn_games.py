@@ -3,9 +3,10 @@ Parsing games from the ESPN API
 """
 
 import json
+from collections.abc import Callable
 from csv import DictWriter
 from logging import getLogger
-from typing import Callable, Dict, List, NamedTuple, Optional
+from typing import NamedTuple
 
 from dateutil import parser
 
@@ -21,10 +22,10 @@ logger = getLogger(__name__)
 # league fetched by day gets back whatever ESPN ran that day, and only the
 # league knows which of those are it playing itself. See
 # `daily.league_play_filter`.
-EventFilter = Callable[[Dict], bool]
+EventFilter = Callable[[dict], bool]
 
 
-def keep_every_event(event: Dict) -> bool:
+def keep_every_event(event: dict) -> bool:
     """
     The default `EventFilter`: parse everything ESPN returned.
 
@@ -34,7 +35,7 @@ def keep_every_event(event: Dict) -> bool:
     return True
 
 
-def save_seasons(seasons: List[Season], location: str):
+def save_seasons(seasons: list[Season], location: str):
     """
     Save seasons for some ESPN-formatted sport.
     """
@@ -54,7 +55,7 @@ def save_seasons(seasons: List[Season], location: str):
                     )
 
 
-def _get_first_game(seasons: List[Season]) -> Game:
+def _get_first_game(seasons: list[Season]) -> Game:
     for season in seasons:
         for week in season.weeks:
             for game in week.games:
@@ -68,7 +69,7 @@ async def get_games(
     event_filter: EventFilter = keep_every_event,
     *,
     include_unplayed: bool = False,
-) -> List[Game]:
+) -> list[Game]:
     """
     Get games for a set of parameters (probably a week or something)
     from the ESPN API
@@ -90,7 +91,7 @@ async def get_games(
     tree = json.loads(content.data)
 
     events = [e for e in tree["events"] if event_filter(e)]
-    attempted_games: List[Optional[Game]] = [parse_game(e) for e in events]
+    attempted_games: list[Game | None] = [parse_game(e) for e in events]
     games = [g for g in attempted_games if g is not None]
 
     # Don't cache games if there are none here.
@@ -102,7 +103,7 @@ async def get_games(
     return games if include_unplayed else [g for g in games if g.completed]
 
 
-def parse_game(event: Dict) -> Optional[Game]:
+def parse_game(event: dict) -> Game | None:
     """
     Parse data for a game out of the ESPN JSON response
     """
@@ -172,11 +173,11 @@ class _Competitior(NamedTuple):
     name: str
     # None when ESPN listed the fixture but never filled in a result. Not the
     # same as 0, which the NHL's pre-2005 ties really did finish on.
-    score: Optional[int]
+    score: int | None
     is_home: bool
 
 
-def _parse_competitor(competitor: Dict) -> _Competitior:
+def _parse_competitor(competitor: dict) -> _Competitior:
     score = competitor.get("score")
     return _Competitior(
         name=_clean_name(competitor["team"]["displayName"]),

@@ -8,14 +8,14 @@ the day-pulled leagues pass in.
 
 import json
 import pickle
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 from . import espn_games as espn_games_module
 from .espn_games import get_games, keep_every_event
 from .types import Game
 
-_WHEN = datetime(2024, 1, 20, tzinfo=timezone.utc)
+_WHEN = datetime(2024, 1, 20, tzinfo=UTC)
 
 
 def _event(

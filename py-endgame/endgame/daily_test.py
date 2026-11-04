@@ -1,5 +1,5 @@
-from datetime import date, datetime, timedelta, timezone
-from typing import List, Optional
+from datetime import UTC, date, datetime, timedelta
+from typing import Self
 from unittest.mock import AsyncMock, patch
 
 import aiohttp
@@ -54,19 +54,19 @@ class _FakeSeasonCache(SeasonCache):
     never touch the real cache directory.
     """
 
-    def __init__(self, cached: Optional[Season] = None):
+    def __init__(self, cached: Season | None = None):
         super().__init__("fake")
         self._cached = cached
-        self.saved: List[Season] = []
+        self.saved: list[Season] = []
 
-    def check_cache(self, season: int) -> Optional[Season]:
+    def check_cache(self, season: int) -> Season | None:
         return self._cached
 
     def save_to_cache(self, season: Season) -> None:
         self.saved.append(season)
 
 
-async def _no_games(league: DailyLeague, day: date) -> List[Game]:
+async def _no_games(league: DailyLeague, day: date) -> list[Game]:
     return []
 
 
@@ -80,13 +80,13 @@ def _patch_get_games(side_effect=_no_games):
     mock still records it, so `_unplayed_flags` can check it was passed on.
     """
 
-    async def _call(league: DailyLeague, day: date, **_kwargs) -> List[Game]:
+    async def _call(league: DailyLeague, day: date, **_kwargs) -> list[Game]:
         return await side_effect(league, day)
 
     return patch.object(daily_module, "get_daily_games", AsyncMock(side_effect=_call))
 
 
-def _called_days(mock_get_games: AsyncMock) -> List[date]:
+def _called_days(mock_get_games: AsyncMock) -> list[date]:
     # get_daily_games is called as get_daily_games(league, day,
     # include_unplayed=...), so rebuilding from .args also checks the day
     # itself wasn't passed by keyword.
@@ -108,8 +108,9 @@ def _unplayed_flags(mock_get_games: AsyncMock) -> set:
 def _frozen_today(today: date):
     class _FrozenDate(date):
         @classmethod
-        def today(cls) -> date:
-            return today
+        def today(cls) -> Self:
+            # the frozen day is a plain date, so it can't be typed as `cls`
+            return today  # ty: ignore[invalid-return-type]
 
     return patch.object(daily_module, "date", _FrozenDate)
 
@@ -280,7 +281,7 @@ async def test_get_season__fetches_every_day_when_the_cache_is_empty() -> None:
     opener = _game(datetime(_FINISHED_NHL_YEAR, 10, 7, 19), "opener")
     final = _game(datetime(_FINISHED_NHL_YEAR + 1, 6, 12, 19), "final")
 
-    async def fake_get_games(league: DailyLeague, day: date) -> List[Game]:
+    async def fake_get_games(league: DailyLeague, day: date) -> list[Game]:
         return [g for g in (opener, final) if g.date.date() == day]
 
     cache = _FakeSeasonCache()
@@ -304,7 +305,7 @@ async def test_get_season__resumes_after_the_last_day_of_season_so_far() -> None
     season_so_far = Season([Week([already_have], 1)], _FINISHED_NHL_YEAR)
     fresh = _game(datetime(_FINISHED_NHL_YEAR + 1, 3, 10, 19), "fresh")
 
-    async def fake_get_games(league: DailyLeague, day: date) -> List[Game]:
+    async def fake_get_games(league: DailyLeague, day: date) -> list[Game]:
         return [fresh] if fresh.date.date() == day else []
 
     cache = _FakeSeasonCache()
@@ -333,7 +334,7 @@ async def test_get_season__empty_season_so_far_starts_from_the_top() -> None:
     """A season_so_far with no games has no last day to resume from."""
     opener = _game(datetime(_FINISHED_NHL_YEAR, 10, 7, 19), "opener")
 
-    async def fake_get_games(league: DailyLeague, day: date) -> List[Game]:
+    async def fake_get_games(league: DailyLeague, day: date) -> list[Game]:
         return [opener] if opener.date.date() == day else []
 
     cache = _FakeSeasonCache()
@@ -360,7 +361,7 @@ async def test_get_season__marks_failed_days_as_trouble() -> None:
     good = _game(datetime(_FINISHED_WNBA_YEAR, 6, 3, 19), "good")
     bad_day = date(_FINISHED_WNBA_YEAR, 6, 4)
 
-    async def fake_get_games(league: DailyLeague, day: date) -> List[Game]:
+    async def fake_get_games(league: DailyLeague, day: date) -> list[Game]:
         if day == bad_day:
             raise _response_error(500)
         return [good] if good.date.date() == day else []
@@ -486,7 +487,7 @@ async def test_get_season__numbers_weeks_across_the_new_year() -> None:
     october = _game(datetime(_FINISHED_NHL_YEAR, 10, 7, 19), "october")
     january = _game(datetime(_FINISHED_NHL_YEAR + 1, 1, 6, 19), "january")
 
-    async def fake_get_games(league: DailyLeague, day: date) -> List[Game]:
+    async def fake_get_games(league: DailyLeague, day: date) -> list[Game]:
         return [g for g in (october, january) if g.date.date() == day]
 
     with _patch_get_games(fake_get_games):
@@ -499,7 +500,7 @@ async def test_get_season__numbers_weeks_across_the_new_year() -> None:
     assert [g.game_id for w in weeks for g in w.games] == ["october", "january"]
 
 
-def _patch_espn_games(games: List[Game]):
+def _patch_espn_games(games: list[Game]):
     async def fake_get_games(url, parameters, event_filter=None, **_kwargs):
         return list(games)
 
@@ -617,7 +618,7 @@ async def test_franchises_come_back_under_their_current_name(
     assert games[0].away == "Someone Else"
 
 
-def _patch_get_odds(odds: List[dict], asked: Optional[List[tuple]] = None):
+def _patch_get_odds(odds: list[dict], asked: list[tuple] | None = None):
     async def fake_get_odds_range(url, parameters, *, start, end, chunk_days):
         if asked is not None:
             asked.append((start, end, chunk_days))
@@ -658,7 +659,7 @@ async def test_get_league_odds__asks_when_only_part_of_the_range_is_in_season() 
     The WNBA starts on May 1st, so this straddles the opening.
     """
     expected = [{"competition_id": "1", "odds": {}}]
-    asked: List[tuple] = []
+    asked: list[tuple] = []
 
     with _patch_get_odds(expected, asked):
         odds = [
@@ -674,7 +675,7 @@ async def test_get_league_odds__passes_the_league_its_own_chunk_size() -> None:
     Both leagues here play few enough games a day to ask for a long stretch
     at once, rather than the default sized for NCAABB.
     """
-    asked: List[tuple] = []
+    asked: list[tuple] = []
 
     with _patch_get_odds([], asked):
         [o async for o in get_league_odds(NHL, date(2026, 11, 1), date(2027, 1, 1))]
@@ -697,14 +698,14 @@ def test_finished_seasons_are_finished() -> None:
     assert NHL.is_finished(2015)
     assert WNBA.is_finished(2015)
     assert NCAAWVB.is_finished(2015)
-    assert not NHL.is_finished(datetime.now(timezone.utc).year + 5)
-    assert not WNBA.is_finished(datetime.now(timezone.utc).year + 5)
-    assert not NCAAWVB.is_finished(datetime.now(timezone.utc).year + 5)
+    assert not NHL.is_finished(datetime.now(UTC).year + 5)
+    assert not WNBA.is_finished(datetime.now(UTC).year + 5)
+    assert not NCAAWVB.is_finished(datetime.now(UTC).year + 5)
 
 
 def _espn_event(
-    season_type: Optional[int],
-    competition_type: Optional[str],
+    season_type: int | None,
+    competition_type: str | None,
     name: str = "Away at Home",
 ) -> dict:
     """

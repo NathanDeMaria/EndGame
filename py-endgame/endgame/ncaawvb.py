@@ -3,7 +3,6 @@ NCAA women's college volleyball games, pulled a day at a time.
 """
 
 from datetime import date
-from typing import List, Optional
 
 from .constants import ESPN_SPORTS_API_BASE
 from .daily import DailyLeague, get_season, get_seasons
@@ -105,7 +104,7 @@ async def update(location: str = "ncaawvb.csv") -> None:
     await update_daily(NCAAWVB, location)
 
 
-async def get_ncaawvb_seasons() -> List[Season]:
+async def get_ncaawvb_seasons() -> list[Season]:
     """
     Get every NCAA women's volleyball season
     """
@@ -114,8 +113,8 @@ async def get_ncaawvb_seasons() -> List[Season]:
 
 async def get_ncaawvb_season(
     year: int,
-    season_so_far: Optional[Season] = None,
-    season_cache: Optional[SeasonCache] = None,
+    season_so_far: Season | None = None,
+    season_cache: SeasonCache | None = None,
     *,
     include_unplayed: bool = False,
 ) -> Season:

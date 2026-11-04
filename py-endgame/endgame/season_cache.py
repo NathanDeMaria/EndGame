@@ -1,6 +1,5 @@
 import pickle
 from pathlib import Path
-from typing import Optional
 
 from .config import CONFIG
 from .types import Season
@@ -26,7 +25,7 @@ class SeasonCache:
         with open(str(path), "wb+") as file:
             pickle.dump(season, file)
 
-    def check_cache(self, season: int) -> Optional[Season]:
+    def check_cache(self, season: int) -> Season | None:
         """
         Get a season from the cache.
         Returns None if the season isn't found.

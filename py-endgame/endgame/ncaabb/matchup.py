@@ -1,6 +1,5 @@
 from csv import DictWriter
 from logging import getLogger
-from typing import Dict, List, Optional, Tuple
 
 import aiohttp
 from bs4 import BeautifulSoup, Tag
@@ -16,10 +15,10 @@ logger = getLogger(__name__)
 
 
 URL_FORMAT = "https://www.espn.com/{gender}-college-basketball/matchup?gameId={game_id}"
-StatsTable = Dict[str, Tuple[str, str]]
+StatsTable = dict[str, tuple[str, str]]
 
 
-async def save_possessions(gender: NcaabbGender, location: Optional[str] = None):
+async def save_possessions(gender: NcaabbGender, location: str | None = None):
     """
     Save a .csv with possession counts/results,
     to be joined with the NCAABB games .csv
@@ -56,7 +55,7 @@ async def save_possessions(gender: NcaabbGender, location: Optional[str] = None)
 # https://www.espn.com/mens-college-basketball/matchup?gameId=401263346
 async def get_possessions(
     gender: NcaabbGender, game_id: str
-) -> Optional[List[PossessionSide]]:
+) -> list[PossessionSide] | None:
     """
     Get an estimate of the total number of possessions in a game
     (combined between the two teams)
@@ -144,7 +143,7 @@ _FREE_THROWS = "FT"
 _THREES = "3PT"
 
 
-def _read_stats_from_table(table: Tag) -> Optional[StatsTable]:
+def _read_stats_from_table(table: Tag) -> StatsTable | None:
     """
     There's a table on the "matchup" page for NCAABB
     Each row has the label, and then two columns
@@ -192,7 +191,7 @@ def estimate_possession_results(
     three_att: int,
     free_throw_makes: int,
     free_throw_att: int,
-) -> Tuple[int, int, int, int]:
+) -> tuple[int, int, int, int]:
     """
     Guess the number of possessions that ended with _ points.
     This ignores and-1's, because those are hard.
@@ -257,7 +256,7 @@ def estimate_possession_results(
 
 def _estimate_free_throw_shots(
     free_throw_possessions: float, free_throw_attempts: int
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Given the number of possessions that end with free throws,
     and the number of FTs attempted, we can guess how many

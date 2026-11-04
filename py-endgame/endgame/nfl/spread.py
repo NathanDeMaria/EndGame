@@ -1,7 +1,7 @@
 import re
+from collections.abc import AsyncIterable, Iterable
 from csv import DictWriter
 from dataclasses import dataclass
-from typing import AsyncIterable, Dict, Iterable, Optional, Tuple
 
 from bs4 import BeautifulSoup, Tag
 
@@ -25,7 +25,7 @@ class Game:
     season: int
     spread: float
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """
         Serializable form of a game
         """
@@ -137,7 +137,7 @@ def _to_games(td_tag: Tag, header_text: str) -> Iterable[Game]:
         )
 
 
-def _parse_table(table: Tag) -> Iterable[Tuple[NflTeam, NflTeam, float]]:
+def _parse_table(table: Tag) -> Iterable[tuple[NflTeam, NflTeam, float]]:
     # Skip the first one b/c it's headers
     for table_row in table.find_all("tr")[1:]:
         parsed = _parse_row(table_row)
@@ -145,7 +145,7 @@ def _parse_table(table: Tag) -> Iterable[Tuple[NflTeam, NflTeam, float]]:
             yield parsed
 
 
-def _parse_row(table_row: Tag) -> Optional[Tuple[NflTeam, NflTeam, float]]:
+def _parse_row(table_row: Tag) -> tuple[NflTeam, NflTeam, float] | None:
     """
     Returns
     -------

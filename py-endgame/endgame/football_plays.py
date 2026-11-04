@@ -13,7 +13,6 @@ has to be one request per game -- so a caller pulling a whole week wants
 import json
 from enum import Enum
 from logging import getLogger
-from typing import Dict, List
 
 from .web import get
 
@@ -35,7 +34,7 @@ class FootballLeague(Enum):
     ncaafb = "college-football"
 
 
-async def get_game_plays(game_id: str, league: FootballLeague) -> List[Dict]:
+async def get_game_plays(game_id: str, league: FootballLeague) -> list[dict]:
     """
     A game's completed drives, each with its plays, exactly as ESPN sends
     them.

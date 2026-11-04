@@ -1,12 +1,13 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any
 
 from dataclasses_json import DataClassJsonMixin
 
 from ..gender import NcaabbGender
 
 
-def _parse_int(raw: str) -> Optional[int]:
+def _parse_int(raw: str) -> int | None:
     try:
         return int(raw)
     except ValueError:
@@ -15,7 +16,7 @@ def _parse_int(raw: str) -> Optional[int]:
 
 # Each column ESPN's summary sends a box score in, by its key, and the fields
 # it fills. A pair like "3-7" fills two.
-_KEYS_TO_FIELDS: List[Tuple[str, Tuple[str, ...]]] = [
+_KEYS_TO_FIELDS: list[tuple[str, tuple[str, ...]]] = [
     ("minutes", ("minutes_played",)),
     ("fieldGoalsMade-fieldGoalsAttempted", ("field_goal_makes", "field_goal_attempts")),
     (
@@ -44,30 +45,30 @@ class PlayerBoxScore(DataClassJsonMixin):
     player_id: str
     # The player's name as it appears in his ESPN url: "trey-kaufman-renn".
     short_name: str
-    minutes_played: Optional[int]
+    minutes_played: int | None
 
-    field_goal_makes: Optional[int]
-    field_goal_attempts: Optional[int]
-    three_point_makes: Optional[int]
-    three_point_attempts: Optional[int]
-    free_throw_makes: Optional[int]
-    free_throw_attempts: Optional[int]
-    offensive_rebounds: Optional[int]
-    defensive_rebounds: Optional[int]
-    rebounds: Optional[int]
-    assists: Optional[int]
-    steals: Optional[int]
-    blocks: Optional[int]
-    turnovers: Optional[int]
-    fouls: Optional[int]
-    points: Optional[int]
+    field_goal_makes: int | None
+    field_goal_attempts: int | None
+    three_point_makes: int | None
+    three_point_attempts: int | None
+    free_throw_makes: int | None
+    free_throw_attempts: int | None
+    offensive_rebounds: int | None
+    defensive_rebounds: int | None
+    rebounds: int | None
+    assists: int | None
+    steals: int | None
+    blocks: int | None
+    turnovers: int | None
+    fouls: int | None
+    points: int | None
 
     # Whether he started, and ESPN's G/F/C. Defaulted because the box scores
     # stored before they were read don't have them -- which is also why a
     # subclass adding fields has to make them keyword-only (endgame_aws's
     # FlattenedBoxScore does).
-    starter: Optional[bool] = None
-    position: Optional[str] = None
+    starter: bool | None = None
+    position: str | None = None
 
     def get_link(self, gender: NcaabbGender) -> str:
         """
@@ -80,14 +81,14 @@ class PlayerBoxScore(DataClassJsonMixin):
         )
 
 
-def parse_player(entry: Mapping[str, Any], keys: List[str]) -> PlayerBoxScore:
+def parse_player(entry: Mapping[str, Any], keys: list[str]) -> PlayerBoxScore:
     """
     One player's entry in a box score from ESPN's game summary -- the
     athlete, whether he started, and his stats as strings in `keys`' order.
     """
     athlete = entry["athlete"]
     raw = dict(zip(keys, entry.get("stats") or []))
-    stats: Dict[str, Optional[int]] = {}
+    stats: dict[str, int | None] = {}
     for key, fields in _KEYS_TO_FIELDS:
         values = raw.get(key, "").split("-") if len(fields) > 1 else [raw.get(key, "")]
         for name, value in zip(fields, values + [""] * len(fields)):

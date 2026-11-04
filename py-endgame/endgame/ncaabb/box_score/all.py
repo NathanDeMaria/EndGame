@@ -1,7 +1,8 @@
 import json
+from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import dataclass
 from logging import getLogger
-from typing import Any, AsyncIterator, Dict, Iterator, List, Mapping, Optional
+from typing import Any
 
 from aiohttp import ClientResponseError
 from dataclasses_json import DataClassJsonMixin
@@ -36,7 +37,7 @@ class TeamBoxScore(DataClassJsonMixin):
     "is_home" will be true for the team in the "home" slot on ESPN
     """
 
-    players: List[PlayerBoxScore]
+    players: list[PlayerBoxScore]
     is_home: bool
     team_id: str
 
@@ -60,13 +61,13 @@ class BoxScoreSeason(DataClassJsonMixin):
 
     gender: str
     season: int
-    games: List[BoxScore]
+    games: list[BoxScore]
 
 
 BOX_SCORE_CACHE = DiskCache(BoxScoreSeason, ["season", "gender"])
 
 
-async def save_box_scores(gender: NcaabbGender, location: Optional[str] = None):
+async def save_box_scores(gender: NcaabbGender, location: str | None = None):
     """
     Save the box scores for all games that we have.
 
@@ -156,7 +157,7 @@ async def get_season_summaries(
             )
 
 
-async def get_game_summary(gender: NcaabbGender, game_id: str) -> Optional[dict]:
+async def get_game_summary(gender: NcaabbGender, game_id: str) -> dict | None:
     """
     ESPN's game summary for a game -- the same endpoint the football
     play-by-play reads, under basketball -- with the parts that aren't about
@@ -186,7 +187,7 @@ async def get_game_summary(gender: NcaabbGender, game_id: str) -> Optional[dict]
     }
 
 
-async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore]:
+async def get_box_score(gender: NcaabbGender, game_id: str) -> BoxScore | None:
     """
     A game's box score, from its summary (`get_game_summary`).
 
@@ -203,7 +204,7 @@ async def get_box_score(gender: NcaabbGender, game_id: str) -> Optional[BoxScore
     return None if summary is None else parse_box_score(game_id, summary)
 
 
-def parse_box_score(game_id: str, summary: Mapping[str, Any]) -> Optional[BoxScore]:
+def parse_box_score(game_id: str, summary: Mapping[str, Any]) -> BoxScore | None:
     """
     The box score in one game summary. Home and away come from the
     header's competitors, which is where ESPN says which team is which; the
@@ -214,7 +215,7 @@ def parse_box_score(game_id: str, summary: Mapping[str, Any]) -> Optional[BoxSco
         str(competitor["team"]["id"]): competitor["homeAway"]
         for competitor in competitions[0].get("competitors", [])
     }
-    teams: Dict[str, TeamBoxScore] = {}
+    teams: dict[str, TeamBoxScore] = {}
     for team in (summary.get("boxscore") or {}).get("players", []):
         team_id = str(team["team"]["id"])
         side = sides.get(team_id)

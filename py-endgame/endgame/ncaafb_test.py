@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 from . import ncaafb
@@ -28,7 +28,7 @@ def _game(month: int, day: int, game_id: str, year: int = 2021) -> Game:
         away_score=0,
         neutral_site=False,
         completed=True,
-        date=datetime(year, month, day, tzinfo=timezone.utc),
+        date=datetime(year, month, day, tzinfo=UTC),
         game_id=game_id,
     )
 

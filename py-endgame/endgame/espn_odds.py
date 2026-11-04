@@ -1,7 +1,8 @@
 import json
-from datetime import date, datetime, timedelta, timezone
+from collections.abc import AsyncIterator
+from datetime import UTC, date, datetime, timedelta
 from logging import getLogger
-from typing import AsyncIterator, Dict, List, NamedTuple, Optional, TypedDict
+from typing import NamedTuple, TypedDict
 
 from .async_tools import apply_in_parallel
 from .date import date_range
@@ -73,7 +74,7 @@ PRICED_REACH = timedelta(days=8)
 
 def _now() -> datetime:
     """The moment `PRICED_REACH` is measured from. A function so tests can fix it."""
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 def within_priced_reach(
@@ -145,7 +146,7 @@ class PartlyUnpriced(NoPricesFound):
     still says a league went dark.
     """
 
-    def __init__(self, problems: List[NoPricesFound]):
+    def __init__(self, problems: list[NoPricesFound]):
         self.problems = problems
         super().__init__("; ".join(str(problem) for problem in problems))
 
@@ -201,7 +202,7 @@ class _OddsPage(NamedTuple):
     # out the preseason and anything past `PRICED_REACH`. The only ones a
     # missing price says anything about; see `NoPricesFound`.
     unstarted: int
-    odds: List[Odds]
+    odds: list[Odds]
 
 
 def _has_kicked_off(competition: dict) -> bool:
@@ -277,7 +278,7 @@ async def get_odds(url: str, parameters: RequestParameters) -> AsyncIterator[Odd
 
 async def _get_odds_day(
     url: str,
-    base_parameters: Dict,
+    base_parameters: dict,
     day: date,
     reach: timedelta = PRICED_REACH,
 ) -> _OddsPage:
@@ -334,7 +335,7 @@ async def _get_odds_day(
 
 async def get_odds_range(
     url: str,
-    base_parameters: Optional[Dict] = None,
+    base_parameters: dict | None = None,
     *,
     start: date,
     end: date,

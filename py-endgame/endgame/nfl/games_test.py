@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,7 +17,7 @@ def _game(home: str, away: str) -> Game:
         away_score=10,
         neutral_site=False,
         completed=True,
-        date=datetime(2005, 11, 6, tzinfo=timezone.utc),
+        date=datetime(2005, 11, 6, tzinfo=UTC),
         game_id="1",
     )
 

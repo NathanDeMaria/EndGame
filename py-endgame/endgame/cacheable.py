@@ -1,20 +1,17 @@
 from pathlib import Path
-from typing import Generic, List, Optional, Type, TypeVar
 
 import aiofiles
 from dataclasses_json import DataClassJsonMixin
 
 from .config import CONFIG
 
-T = TypeVar("T", bound=DataClassJsonMixin)
 
-
-class DiskCache(Generic[T]):
+class DiskCache[T: DataClassJsonMixin]:
     """
     An object that can be cached.
     """
 
-    def __init__(self, cacheable_class: Type[T], unique_attributes: List[str]):
+    def __init__(self, cacheable_class: type[T], unique_attributes: list[str]):
         self._cacheable_class = cacheable_class
         self._unique_attribues = unique_attributes
         assert all(a in cacheable_class.__annotations__ for a in unique_attributes), (
@@ -34,7 +31,7 @@ class DiskCache(Generic[T]):
         async with aiofiles.open(str(path), "w") as file:
             await file.write(item.to_json())
 
-    async def check_cache(self, **kwargs) -> Optional[T]:
+    async def check_cache(self, **kwargs) -> T | None:
         """
         Get an item from the cache given its unique attributes
         Return None on cache miss

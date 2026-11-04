@@ -1,7 +1,7 @@
-from datetime import date, datetime, timezone
+from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, date, datetime
 from itertools import groupby
 from logging import getLogger
-from typing import AsyncIterator, Dict, Iterator, List
 
 import aiohttp
 
@@ -68,7 +68,7 @@ async def update(location="ncaaf.csv"):
     save_seasons(seasons, location)
 
 
-def _week_params(year: int) -> List[WeekParams]:
+def _week_params(year: int) -> list[WeekParams]:
     """
     Every request a season is made of: each division, each week, plus the
     postseason.
@@ -76,7 +76,7 @@ def _week_params(year: int) -> List[WeekParams]:
     Week 0 only from `FIRST_WEEK_ZERO_SEASON` on -- see the constant.
     """
     first_week = 0 if year >= FIRST_WEEK_ZERO_SEASON else 1
-    week_params: List[WeekParams] = []
+    week_params: list[WeekParams] = []
     for group in NcaaFbGroup:
         for week_num in range(first_week, N_REGULAR_WEEKS + 1):
             week_params.append(WeekParams(year, week_num, SeasonType.regular, group))
@@ -127,7 +127,7 @@ async def get_season(
     week_params = _week_params(year)
 
     weeks = []
-    trouble_weeks: List[WeekParams] = []
+    trouble_weeks: list[WeekParams] = []
     for week_param in week_params:
         try:
             week = await _get_week(*week_param, include_unplayed=include_unplayed)
@@ -148,8 +148,8 @@ async def get_season(
     # Cache if the season is over -- and only if we were allowed to read it,
     # since `save_to_cache` refuses to overwrite and a bypassing caller has
     # no business replacing what it deliberately ignored.
-    season_end_date = datetime(year + 1, *SEASON_END, tzinfo=timezone.utc)
-    if use_cache and datetime.now(timezone.utc) > season_end_date:
+    season_end_date = datetime(year + 1, *SEASON_END, tzinfo=UTC)
+    if use_cache and datetime.now(UTC) > season_end_date:
         cache.save_to_cache(season)
 
     return season
@@ -177,7 +177,7 @@ async def get_ncaafb_odds(start: date, end: date) -> AsyncIterator[Odds]:
         yield odd
 
 
-def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:
+def _remove_cross_division_duplicates(weeks: list[Week]) -> Iterator[Week]:
     """
     Collapse the copies of a game that came back under more than one
     division into one game.
@@ -197,7 +197,7 @@ def _remove_cross_division_duplicates(weeks: List[Week]) -> Iterator[Week]:
         return w.number
 
     for number, matched_weeks in groupby(sorted(weeks, key=key), key=key):
-        games: Dict[str, Game] = {}
+        games: dict[str, Game] = {}
         for week in matched_weeks:
             for game in week.games:
                 if supersedes(game, games.get(game.game_id)):

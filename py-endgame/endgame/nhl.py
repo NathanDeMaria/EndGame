@@ -2,8 +2,8 @@
 NHL games and odds, pulled a day at a time.
 """
 
+from collections.abc import AsyncIterator
 from datetime import date
-from typing import AsyncIterator, List, Optional
 
 from .constants import ESPN_SPORTS_API_BASE
 from .daily import DailyLeague, get_league_odds, get_season, get_seasons
@@ -109,7 +109,7 @@ async def update(location: str = "nhl.csv") -> None:
     await update_daily(NHL, location)
 
 
-async def get_nhl_seasons() -> List[Season]:
+async def get_nhl_seasons() -> list[Season]:
     """
     Get every NHL season
     """
@@ -118,8 +118,8 @@ async def get_nhl_seasons() -> List[Season]:
 
 async def get_nhl_season(
     year: int,
-    season_so_far: Optional[Season] = None,
-    season_cache: Optional[SeasonCache] = None,
+    season_so_far: Season | None = None,
+    season_cache: SeasonCache | None = None,
     *,
     include_unplayed: bool = False,
 ) -> Season:
