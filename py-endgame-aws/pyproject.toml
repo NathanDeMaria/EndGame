@@ -1,54 +1,83 @@
-[tool.poetry]
+[project]
 name = "endgame-aws"
 version = "0.1.0"
-description = ""
-authors = []
+description = "ESPN data from the EndGame package, stored in S3"
+readme = "README.md"
+# The oldest Python this supports, not the one it's developed on: a library
+# that asks for a newer interpreter than its consumers run can't be installed.
+requires-python = ">=3.14"
+dependencies = [
+    "fire>=0.4.0,<1.0",
+    "aiobotocore>=3.9.0",
+    "endgame",
+    "dataclasses-json>=0.5.7,<1.0",
+    # The processed play-by-play layer: the parquet writer, the dataset reader
+    # that turns a game_id filter into byte ranges, and its own S3 filesystem.
+    # No pandas -- the schema in `pbp_transform` is a pyarrow one, because most
+    # of these columns are nullable ints and pandas casts those to float64.
+    #
+    # No upper bound: a library's cap holds every consumer back with it, and
+    # pyarrow 25 has no wheels for Python 3.15 -- `^25.0` kept lucky-ones and
+    # cassandra from installing on it at all. Each consumer's lock file is what
+    # pins the version it actually runs.
+    "pyarrow>=25.0",
+]
 
-[tool.poetry.dependencies]
-# endgame_aws/stores.py uses PEP 695 generic syntax (`class Foo[T]`),
-# which needs 3.12+ -- ^3.11 here was wrong, the package has never
-# actually been importable on 3.11.
-python = "^3.12"
-fire = ">=0.4.0,<1.0"
-aiobotocore = "^3.9.0"
-# Git for pushed commits, relative install for local development
-endgame = {git = "https://github.com/NathanDeMaria/EndGame.git", rev = "a909d98f16a182d72d62eec72198e417c91e36f2", subdirectory = "py-endgame"}
-# endgame = {path = "../py-endgame", develop = true}
-dataclasses-json = ">=0.5.7,<1.0"
-# The processed play-by-play layer: the parquet writer, the dataset reader
-# that turns a game_id filter into byte ranges, and its own S3 filesystem.
-# No pandas -- the schema in `pbp_transform` is a pyarrow one, because most
-# of these columns are nullable ints and pandas casts those to float64.
-#
-# No upper bound: a library's caret cap holds every consumer back with it, and
-# pyarrow 25 has no wheels for Python 3.15 -- `^25.0` kept lucky-ones and
-# cassandra from installing on it at all. Each consumer's lock file is what
-# pins the version it actually runs.
-pyarrow = ">=25.0"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^9.0.2"
-ruff = "^0.16.1"
-ty = "^0.0.65"
-types-aiobotocore = {extras = ["essential"], version = "^3.2.1"}
-ipykernel = "^7.2.0"
-pytest-asyncio = "^1.3.0"
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.scripts]
+[project.scripts]
 endgame-aws = "endgame_aws.cli:main"
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "types-aiobotocore[essential]>=3.2.1",
+    "ruff>=0.17.3",
+    "ty>=0.0.94",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["endgame_aws"]
+
+[tool.uv.sources]
+# Git for pushed commits. This is a sibling directory of this repo, but pinned
+# to a commit rather than a path so the image and a consumer resolve the same
+# `endgame`; to develop both at once, swap in `{ path = "../py-endgame",
+# editable = true }` locally. Sources only apply to this project, never to
+# whoever depends on it, so a consumer pins the same dependency again itself.
+endgame = { git = "https://github.com/NathanDeMaria/EndGame.git", rev = "a909d98f16a182d72d62eec72198e417c91e36f2", subdirectory = "py-endgame" }
+
+# Below here is the template's. `copier update` brings changes to it from
+# mirrorball, so per-repo additions are better made as new keys than as edits.
 
 [tool.ruff]
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+# Ruff's defaults (E4, E7, E9, F), import sorting, and pyupgrade -- which
+# reads requires-python to decide what's outdated.
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["endgame_aws"]
+
+[tool.ty.terminal]
+# A warning fails `make check` and CI, same as an error. Silence one on purpose
+# with `# ty: ignore[rule]`, which ty itself flags once it's no longer needed.
+error-on-warning = true
+
+[tool.pytest]
+# Unknown markers, bad config keys and xfails that pass are failures.
+strict = true
+asyncio_mode = "auto"
+markers = [
+    # Needs real AWS credentials. Runs by default, so a local `pytest` is
+    # unchanged; CI deselects it with PYTEST_ADDOPTS='-m "not network"'.
+    "network: talks to a live service (S3, ESPN)",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # these just re-export names for the public API

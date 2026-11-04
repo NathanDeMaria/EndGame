@@ -1,48 +1,27 @@
-ifeq ($(OS),Windows_NT)
-SHELL := powershell.exe
-.SHELLFLAGS := -NoProfile -Command
-endif
-
-IMAGE_URL ?= $(shell cat .\config.json | jq -r .repo_urls.value.endgame)
-ACCOUNT := $(shell aws sts get-caller-identity --query "Account" --output text)
-REGION=us-east-2
-TAG ?= local
-
-# Get the current git commit hash
-GIT_COMMIT := $(shell git rev-parse --short HEAD)
-
-# Check if we're on the main branch
-IS_MAIN := $(shell git rev-parse --abbrev-ref HEAD | grep -q ^main$$ && echo true || echo false)
-
-# CI passes buildx cache flags in here; empty locally, where the daemon's own
-# layer cache already does the job.
-CACHE_FLAGS ?=
-
-# Everything about the build that doesn't depend on where the result goes.
-# `build` and `push` differ only in their output flag, so they stay one build
-# definition -- tagging included, rather than a follow-up `docker tag`.
+# Template-owned (mirrorball): `copier update` changes this file. Targets of
+# this repo's own go in project.mk, which is included at the bottom.
 #
-# The context is the repo root (`..`), not this directory: `endgame` is a path
-# dependency on ../py-endgame, and docker can't copy in anything the context
-# doesn't cover. The paths inside the Dockerfile are relative to that, and
-# ../.dockerignore is what keeps the other projects (jobs/ alone is ~800MB of
-# terraform providers) out of the context.
-BUILD_FLAGS := --target runtime -f .devcontainer/Dockerfile -t ${IMAGE_URL}:${TAG}
-BUILD_CONTEXT := ..
-ifeq ($(IS_MAIN),true)
-BUILD_FLAGS += -t ${IMAGE_URL}:latest
-endif
+# `uv run` syncs the environment from uv.lock before it runs anything, so these
+# work from a fresh checkout with no install step in front of them.
 
-build:
-	docker buildx build ${CACHE_FLAGS} ${BUILD_FLAGS} --load ${BUILD_CONTEXT}
+# Fix what can be fixed, then report what's left
+lint:
+	uv run ruff check --fix .
+	uv run ruff format .
+	uv run ty check .
 
-_ecr_login:
-	aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com
 
-# `--push` uploads straight from the builder. Going through `build` would mean
-# `--load`ing the image into the local daemon first -- a full tarball export
-# and re-import (~35s in CI) whose only purpose was to give `docker push`
-# something to read. Needs the ECR login first, both for the push itself and
-# for the registry cache CI passes in CACHE_FLAGS.
-push: _ecr_login
-	docker buildx build ${CACHE_FLAGS} ${BUILD_FLAGS} --push ${BUILD_CONTEXT}
+# Same checks as `lint`, but reports instead of fixing (what CI runs)
+check:
+	uv run ruff format --check .
+	uv run ruff check .
+	uv run ty check .
+
+
+test:
+	uv run pytest .
+
+
+.PHONY: lint check test
+
+-include project.mk

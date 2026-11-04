@@ -1,70 +1,67 @@
-name: Run make push
+# One check, `ci`, is what the branch ruleset requires. Each package is checked
+# on its own (it has its own pyproject.toml and uv.lock, so its own matrix leg),
+# and `ci` goes green only when every leg and the image build have.
+name: CI
 
 on:
   push:
-    branches: [ "*" ]
+    branches: [main]
   pull_request:
-    branches: [ "*" ]
+
+# Superseded PR runs are pointless, but let pushes to main finish so `latest`
+# always corresponds to a commit that's actually on the branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
+  package:
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
         package: [py-endgame, py-endgame-aws]
 
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-    - name: Install poetry
-      run: pip install poetry
-    - name: Install dependencies
-      working-directory: ${{ matrix.package }}
-      run: poetry install
-    - name: ruff format --check
-      working-directory: ${{ matrix.package }}
-      run: poetry run ruff format --check .
-    - name: ruff check
-      working-directory: ${{ matrix.package }}
-      run: poetry run ruff check .
-    - name: ty check
-      working-directory: ${{ matrix.package }}
-      run: poetry run ty check .
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
 
-  # Not matrixed over both packages the way `lint` is, because only one of
-  # them has tests a merge gate can run. py-endgame-aws's `stores_test.py`
-  # lists a real S3 bucket and `main_test.py` is a hand-run script rather
-  # than a test at all -- so there is nothing there to gate on yet, and
-  # pretending otherwise would mean wiring AWS credentials into a job that
-  # currently needs none.
-  test:
-    runs-on: ubuntu-latest
+    env:
+      # Inline annotations on the PR diff instead of plain console output
+      RUFF_OUTPUT_FORMAT: github
+      TY_OUTPUT_FORMAT: github
+      # Drops the tests that call a live service for real: ESPN in py-endgame
+      # (two play-by-play tests that assert exact counts against what it serves
+      # back) and S3 in py-endgame-aws (a listing of the real bucket). They are
+      # worth having and a local `pytest` still runs them; they are not worth
+      # gating a merge on, because then an ESPN outage, a rate limit, a
+      # play-by-play revised upstream or a missing AWS credential fails the
+      # build for reasons that have nothing to do with the commit.
+      PYTEST_ADDOPTS: -m "not network"
 
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-    - name: Install poetry
-      run: pip install poetry
-    - name: Install dependencies
-      working-directory: py-endgame
-      run: poetry install
-    # `not network` drops the two play-by-play tests, which call ESPN for
-    # real and assert exact counts against what it serves back. They are
-    # worth having and a local `pytest` still runs them; they are not worth
-    # gating a merge on, because then an ESPN outage, a rate limit, or a
-    # play-by-play revised upstream fails the build for reasons that have
-    # nothing to do with the commit.
-    - name: pytest
-      working-directory: py-endgame
-      run: poetry run pytest -m "not network"
+      - uses: actions/checkout@v7
 
-  make-push:
-    needs: [lint, test]
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13.6"
+          python-version: "3.15"
+          enable-cache: true
+          cache-dependency-glob: "*/uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: make check
+
+      - name: Test
+        run: make test
+
+  # The Batch image for py-endgame-aws.
+  image:
+    needs: [package]
     runs-on: ubuntu-latest
 
     # The push assumes `endgame-ci-image` by OIDC, which only trusts main.
@@ -87,9 +84,7 @@ jobs:
       PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
     steps:
-    - uses: actions/checkout@v3
-      with:
-        fetch-depth: 0  # Needed to get the full git history for rev-parse
+    - uses: actions/checkout@v7
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
@@ -154,3 +149,14 @@ jobs:
         make push TAG=${GITHUB_SHA::7} \
           CACHE_FLAGS="--cache-from type=registry,ref=${IMAGE_URL}:buildcache \
             --cache-to type=registry,ref=${IMAGE_URL}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true"
+
+  ci:
+    # Always runs, so a failed or skipped job upstream reports red rather than
+    # leaving the required check "pending" forever.
+    if: ${{ always() }}
+    needs: [package, image]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "package: ${{ needs.package.result }}, image: ${{ needs.image.result }}"
+          [ "${{ needs.package.result }}" = success ] && [ "${{ needs.image.result }}" = success ]
