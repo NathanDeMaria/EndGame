@@ -48,7 +48,7 @@ packages = ["endgame_aws"]
 # `endgame`; to develop both at once, swap in `{ path = "../py-endgame",
 # editable = true }` locally. Sources only apply to this project, never to
 # whoever depends on it, so a consumer pins the same dependency again itself.
-endgame = { git = "https://github.com/NathanDeMaria/EndGame.git", rev = "a909d98f16a182d72d62eec72198e417c91e36f2", subdirectory = "py-endgame" }
+endgame = { git = "https://github.com/NathanDeMaria/EndGame.git", rev = "8d19c73a4cce561663c2c2be06f18f3fe7312e02", subdirectory = "py-endgame" }
 
 # Below here is the template's. `copier update` brings changes to it from
 # mirrorball, so per-repo additions are better made as new keys than as edits.
