@@ -1,5 +1,5 @@
 # Usage
 
 ```shell
-poetry run endgame <command>
+uv run endgame <command>
 ```
