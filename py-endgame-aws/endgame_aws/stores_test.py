@@ -1,8 +1,11 @@
+import pytest
 from endgame.ncaabb import NcaabbGender
 
 from .stores import get_pbp_store
 
 
+# Lists the real bucket, so it needs AWS credentials: CI deselects `network`.
+@pytest.mark.network
 async def test_pbp_store_list() -> None:
     n_test_days = 2
     tested_days = 0
