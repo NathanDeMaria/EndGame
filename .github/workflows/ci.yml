@@ -58,7 +58,8 @@ jobs:
       # A placeholder: the tests that use the real bucket are the `network` ones.
       - name: Placeholder config for the tests
         if: matrix.package == 'py-endgame-aws'
-        run: echo '{"bucket": {"value": "endgame-ci"}}' > config.json
+        run: |
+          echo '{"bucket": {"value": "endgame-ci"}}' > config.json
 
       - name: Lint
         run: make check
