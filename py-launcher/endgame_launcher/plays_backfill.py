@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import AsyncIterator, Iterator
 from datetime import date, timedelta
-from typing import AsyncIterator, Iterator, NamedTuple
+from typing import NamedTuple
 
 from aiobotocore.session import get_session
 from batch_core import Config, JobDefinition
@@ -17,11 +18,11 @@ async def _find_covered_parameters(bucket: str) -> AsyncIterator[_Params]:
     """
     session = get_session()
     prefix = "plays/ncaabb/"
-    async with session.create_client('s3') as client:
-        paginator = client.get_paginator('list_objects_v2')
-        async for page in paginator.paginate(Bucket=bucket, Prefix=prefix): # type: ignore
-            for obj in page.get('Contents', []):
-                league, filename = obj['Key'].removeprefix(prefix).split("/")
+    async with session.create_client("s3") as client:
+        paginator = client.get_paginator("list_objects_v2")
+        async for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                league, filename = obj["Key"].removeprefix(prefix).split("/")
                 day = filename.removesuffix(".json")
                 yield _Params(league=league, day=day)
 
@@ -29,6 +30,7 @@ async def _find_covered_parameters(bucket: str) -> AsyncIterator[_Params]:
 def _current_season() -> int:
     current_date = date.today()
     return current_date.year - 1 if current_date.month < 11 else current_date.year
+
 
 def _list_days(start_year: int) -> Iterator[str]:
     # Determine start date for NCAABB season (November 1 to mid-April)
@@ -64,8 +66,10 @@ async def _main() -> None:
     print(f"Backlog has {len(covered_parameters)}, need {len(params)} new runs")
 
     session = get_session()
-    async with session.create_client('batch') as client:
-        definition = await JobDefinition.create_from_image(client, config.repo_urls['endgame'])
+    async with session.create_client("batch") as client:
+        definition = await JobDefinition.create_from_image(
+            client, config.repo_urls["endgame"]
+        )
 
         sem = asyncio.Semaphore(10)
 

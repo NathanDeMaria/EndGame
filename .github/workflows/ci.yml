@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [py-endgame, py-endgame-aws]
+        package: [py-endgame, py-endgame-aws, py-launcher]
 
     defaults:
       run:
