@@ -1,6 +1,7 @@
-from batch_core import JobDefinition, Config
-from aiobotocore.session import get_session
 import asyncio
+
+from aiobotocore.session import get_session
+from batch_core import Config, JobDefinition
 
 
 def _build_params() -> list[tuple[str, int]]:
@@ -17,19 +18,23 @@ async def _main() -> None:
     current_params = _build_params()
     params = []
     session = get_session()
-    async with session.create_client('batch') as client:
+    async with session.create_client("batch") as client:
         # TODO: probably don't need to create this every time
-        definition = await JobDefinition.create_from_image(client, config.repo_urls['endgame'])
+        definition = await JobDefinition.create_from_image(
+            client, config.repo_urls["endgame"]
+        )
 
-        job_tasks = ((definition.run("box_scores", gender_name=gender, year=year) for gender, year in current_params))
+        job_tasks = (
+            definition.run("box_scores", gender_name=gender, year=year)
+            for gender, year in current_params
+        )
         jobs = await asyncio.gather(*job_tasks)
 
         # Wait for all jobs in parallel
         results = await asyncio.gather(
-            *(job.wait() for job in jobs),
-            return_exceptions=True
+            *(job.wait() for job in jobs), return_exceptions=True
         )
-        
+
         # Process results
         for result, (gender, year) in zip(results, current_params):
             if isinstance(result, Exception):
@@ -39,7 +44,6 @@ async def _main() -> None:
                 print(gender, year, result)
                 if not result:
                     params.append((gender, year))
-
 
 
 if __name__ == "__main__":
