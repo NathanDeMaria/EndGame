@@ -3,11 +3,19 @@ import itertools
 import json
 import re
 from collections import Counter
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from functools import wraps
 from inspect import iscoroutinefunction
-from typing import Any, AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from endgame.async_tools import apply_in_parallel

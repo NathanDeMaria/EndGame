@@ -17,9 +17,9 @@ two schemas share almost nothing, and that tree has to open as one dataset.
 """
 
 import asyncio
+from collections.abc import Iterable, Sequence
 from datetime import date, datetime
 from logging import getLogger
-from typing import Iterable, Sequence
 
 import pyarrow as pa
 import pyarrow.dataset as ds

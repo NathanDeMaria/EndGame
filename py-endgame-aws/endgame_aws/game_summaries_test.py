@@ -1,7 +1,8 @@
 import gzip
 import json
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import ExitStack, asynccontextmanager
-from typing import Any, AsyncGenerator, AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from endgame.ncaabb import NcaabbGender
@@ -172,7 +173,7 @@ class _Run:
         self.skipped: set[str] | None = None
         self.written: list[dict] | None = None
 
-    async def __aenter__(self) -> "_Run":
+    async def __aenter__(self) -> _Run:
         for game_id, summary in self.stored.items():
             await self.store.save(summary, "mens", 2011, game_id)
         store = self.store

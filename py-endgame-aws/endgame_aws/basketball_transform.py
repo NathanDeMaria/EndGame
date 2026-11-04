@@ -15,9 +15,10 @@ built from them belong to whoever reads this table; the transform's one
 opinion is which copy of a game to keep (see `transform_day_to_table`).
 """
 
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import date
 from logging import getLogger
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+from typing import Any
 
 import pyarrow as pa
 

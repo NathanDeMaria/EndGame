@@ -28,8 +28,9 @@ the lookup.
 """
 
 import asyncio
+from collections.abc import Iterable, Mapping, Sequence
 from logging import getLogger
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.dataset as ds

@@ -1,10 +1,11 @@
 import asyncio
 import json
 import pickle
+from collections.abc import AsyncIterator
 from csv import DictReader, DictWriter
 from dataclasses import dataclass
 from io import StringIO
-from typing import Any, AsyncIterator, Type, TypeVar
+from typing import Any
 
 from aiobotocore.session import get_session
 from botocore.exceptions import ClientError
@@ -37,7 +38,7 @@ class FlattenedBoxScore(PlayerBoxScore, DataClassJsonMixin):
     @classmethod
     def from_player(
         cls, player: PlayerBoxScore, *, game_id: str, team_id: str
-    ) -> "FlattenedBoxScore":
+    ) -> FlattenedBoxScore:
         """
         Build a flattened row from a player's box score plus the ids of the
         game and team it came from.
@@ -108,12 +109,9 @@ async def read_box_scores(bucket: str, key: str) -> list[FlattenedBoxScore]:
     return [box async for box in _read_csv(bucket, key, FlattenedBoxScore)]
 
 
-_DataclassJsonType = TypeVar("_DataclassJsonType", bound=DataClassJsonMixin)
-
-
-async def _read_csv(
-    bucket: str, key: str, data_class: Type[_DataclassJsonType]
-) -> AsyncIterator[_DataclassJsonType]:
+async def _read_csv[DataclassJsonType: DataClassJsonMixin](
+    bucket: str, key: str, data_class: type[DataclassJsonType]
+) -> AsyncIterator[DataclassJsonType]:
     session = get_session()
     async with session.create_client("s3") as client:
         raw = await read_from_s3(bucket, key, client)
