@@ -16,9 +16,10 @@ written to parquet anyway. Callers who want a DataFrame call `.to_pandas()`
 on the result.
 """
 
-from datetime import datetime, timezone
+from collections.abc import Iterable, Mapping, Sequence
+from datetime import UTC, datetime
 from logging import getLogger
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any
 
 import pyarrow as pa
 
@@ -354,7 +355,7 @@ def parse_wallclock(value: Any) -> datetime | None:
     except ValueError:
         logger.warning("Couldn't parse a play wallclock: %r", value)
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _defense_team_id(play: Mapping[str, Any]) -> str | None:
@@ -388,7 +389,7 @@ def _as_int(value: Any) -> int | None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

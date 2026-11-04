@@ -1,15 +1,10 @@
 import datetime
 import gzip
 import json
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import (
     Any,
-    AsyncContextManager,
-    AsyncIterator,
-    Callable,
-    Mapping,
-    Sequence,
-    TypeVar,
 )
 
 from aiobotocore.session import get_session
@@ -19,14 +14,14 @@ from .config import Config
 from .io import list_keys, read_from_s3, save_data_to_s3
 
 
-class _DatedStore[_StoreType]:
+class _DatedStore[StoreType]:
     def __init__(
         self,
         client,
         bucket: str,
         prefix: str,
-        serializer: Callable[[_StoreType], bytes],
-        deserializer: Callable[[bytes], _StoreType],
+        serializer: Callable[[StoreType], bytes],
+        deserializer: Callable[[bytes], StoreType],
         extension: str,
     ) -> None:
         self._client = client
@@ -37,7 +32,7 @@ class _DatedStore[_StoreType]:
         self._extension = extension
 
     async def save(
-        self, value: _StoreType, date: datetime.date, league: NcaabbGender
+        self, value: StoreType, date: datetime.date, league: NcaabbGender
     ) -> None:
         await save_data_to_s3(
             self._bucket,
@@ -45,7 +40,7 @@ class _DatedStore[_StoreType]:
             self._serializer(value),
         )
 
-    async def load(self, date: datetime.date, league: NcaabbGender) -> _StoreType:
+    async def load(self, date: datetime.date, league: NcaabbGender) -> StoreType:
         data = await read_from_s3(
             self._bucket,
             self._build_key(date, league),
@@ -77,7 +72,7 @@ class _DatedStore[_StoreType]:
                 modified[datetime.date.fromisoformat(name)] = obj["LastModified"]
         return modified
 
-    async def load_all(self, league: NcaabbGender) -> AsyncIterator[_StoreType]:
+    async def load_all(self, league: NcaabbGender) -> AsyncIterator[StoreType]:
         prefix = self._build_prefix(league)
         async for key in list_keys(self._bucket, prefix, self._client):
             data = await read_from_s3(self._bucket, key, self._client)
@@ -90,7 +85,7 @@ class _DatedStore[_StoreType]:
         return f"{self._build_prefix(league)}/{date.isoformat()}.{self._extension}"
 
 
-class _WeeklyStore[_StoreType]:
+class _WeeklyStore[StoreType]:
     """
     Objects keyed by league, season and week.
 
@@ -105,8 +100,8 @@ class _WeeklyStore[_StoreType]:
         client,
         bucket: str,
         prefix: str,
-        serializer: Callable[[_StoreType], bytes],
-        deserializer: Callable[[bytes], _StoreType],
+        serializer: Callable[[StoreType], bytes],
+        deserializer: Callable[[bytes], StoreType],
         extension: str,
     ) -> None:
         self._client = client
@@ -116,14 +111,14 @@ class _WeeklyStore[_StoreType]:
         self._deserializer = deserializer
         self._extension = extension
 
-    async def save(self, value: _StoreType, league: str, year: int, week: int) -> None:
+    async def save(self, value: StoreType, league: str, year: int, week: int) -> None:
         await save_data_to_s3(
             self._bucket,
             self._build_key(league, year, week),
             self._serializer(value),
         )
 
-    async def load(self, league: str, year: int, week: int) -> _StoreType:
+    async def load(self, league: str, year: int, week: int) -> StoreType:
         data = await read_from_s3(
             self._bucket,
             self._build_key(league, year, week),
@@ -131,7 +126,7 @@ class _WeeklyStore[_StoreType]:
         )
         return self._deserializer(data)
 
-    async def load_all(self, league: str, year: int) -> AsyncIterator[_StoreType]:
+    async def load_all(self, league: str, year: int) -> AsyncIterator[StoreType]:
         prefix = self._build_prefix(league, year)
         async for key in list_keys(self._bucket, prefix, self._client):
             data = await read_from_s3(self._bucket, key, self._client)
@@ -146,19 +141,16 @@ class _WeeklyStore[_StoreType]:
         return f"{self._build_prefix(league, year)}/{week:02d}.{self._extension}"
 
 
-_StoreType = TypeVar("_StoreType")
-
-
 @asynccontextmanager
-async def _get_store(
+async def _get_store[StoreType](
     prefix: str,
-    serializer: Callable[[_StoreType], bytes],
-    deserializer: Callable[[bytes], _StoreType],
+    serializer: Callable[[StoreType], bytes],
+    deserializer: Callable[[bytes], StoreType],
     extension: str,
-) -> AsyncIterator[_DatedStore[_StoreType]]:
+) -> AsyncGenerator[_DatedStore[StoreType]]:
     session = get_session()
     async with session.create_client("s3") as client:
-        yield _DatedStore[_StoreType](
+        yield _DatedStore[StoreType](
             client,
             Config.init_from_file().bucket,
             prefix,
@@ -169,15 +161,15 @@ async def _get_store(
 
 
 @asynccontextmanager
-async def _get_weekly_store(
+async def _get_weekly_store[StoreType](
     prefix: str,
-    serializer: Callable[[_StoreType], bytes],
-    deserializer: Callable[[bytes], _StoreType],
+    serializer: Callable[[StoreType], bytes],
+    deserializer: Callable[[bytes], StoreType],
     extension: str,
-) -> AsyncIterator[_WeeklyStore[_StoreType]]:
+) -> AsyncGenerator[_WeeklyStore[StoreType]]:
     session = get_session()
     async with session.create_client("s3") as client:
-        yield _WeeklyStore[_StoreType](
+        yield _WeeklyStore[StoreType](
             client,
             Config.init_from_file().bucket,
             prefix,
@@ -187,7 +179,9 @@ async def _get_weekly_store(
         )
 
 
-def get_pbp_store() -> AsyncContextManager[_DatedStore[Sequence[Mapping[str, Any]]]]:
+def get_pbp_store() -> AbstractAsyncContextManager[
+    _DatedStore[Sequence[Mapping[str, Any]]]
+]:
     return _get_store(
         "plays/ncaabb",
         lambda d: json.dumps(d).encode(),
@@ -205,7 +199,7 @@ FootballPlaysWeek = Sequence[Mapping[str, Any]]
 FootballPlaysStore = _WeeklyStore[FootballPlaysWeek]
 
 
-def get_football_plays_store() -> AsyncContextManager[FootballPlaysStore]:
+def get_football_plays_store() -> AbstractAsyncContextManager[FootballPlaysStore]:
     """
     Where football play-by-play lands: one object per league, season and
     week.
@@ -278,7 +272,7 @@ class GameSummaryStore:
 
 
 @asynccontextmanager
-async def get_game_summary_store() -> AsyncIterator[GameSummaryStore]:
+async def get_game_summary_store() -> AsyncGenerator[GameSummaryStore]:
     session = get_session()
     async with session.create_client("s3") as client:
         yield GameSummaryStore(client, Config.init_from_file().bucket)
