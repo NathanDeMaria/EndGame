@@ -53,6 +53,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      # endgame_aws.cli reads the bucket name from config.json when it is
+      # imported, so even the tests that never touch S3 need one to collect.
+      # A placeholder: the tests that use the real bucket are the `network` ones.
+      - name: Placeholder config for the tests
+        if: matrix.package == 'py-endgame-aws'
+        run: echo '{"bucket": {"value": "endgame-ci"}}' > config.json
+
       - name: Lint
         run: make check
 
