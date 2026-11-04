@@ -2,8 +2,8 @@
 WNBA games and odds, pulled a day at a time.
 """
 
+from collections.abc import AsyncIterator
 from datetime import date
-from typing import AsyncIterator, List, Optional
 
 from .constants import ESPN_SPORTS_API_BASE
 from .daily import DailyLeague, get_league_odds, get_season, get_seasons
@@ -80,7 +80,7 @@ async def update(location: str = "wnba.csv") -> None:
     await update_daily(WNBA, location)
 
 
-async def get_wnba_seasons() -> List[Season]:
+async def get_wnba_seasons() -> list[Season]:
     """
     Get every WNBA season
     """
@@ -89,8 +89,8 @@ async def get_wnba_seasons() -> List[Season]:
 
 async def get_wnba_season(
     year: int,
-    season_so_far: Optional[Season] = None,
-    season_cache: Optional[SeasonCache] = None,
+    season_so_far: Season | None = None,
+    season_cache: SeasonCache | None = None,
     *,
     include_unplayed: bool = False,
 ) -> Season:

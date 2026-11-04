@@ -1,7 +1,6 @@
 from dataclasses import asdict, dataclass
-from typing import Dict, Union
 
-Primitive = Union[bool, int, float, str]
+type Primitive = bool | int | float | str
 
 
 @dataclass
@@ -20,7 +19,7 @@ class PossessionSide:
     three_points: int
     game_id: str
 
-    def to_dict(self) -> Dict[str, Primitive]:
+    def to_dict(self) -> dict[str, Primitive]:
         """
         Convert to a serializable dict
         """

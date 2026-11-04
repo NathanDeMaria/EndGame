@@ -1,6 +1,6 @@
+from collections.abc import AsyncIterable
 from csv import DictWriter
 from dataclasses import dataclass
-from typing import AsyncIterable, Dict, Tuple, Union
 
 from bs4 import BeautifulSoup, Tag
 
@@ -20,7 +20,7 @@ class CoachRow:
     team: NflTeam
     coach: str
 
-    def to_dict(self) -> Dict[str, Union[str, int]]:
+    def to_dict(self) -> dict[str, str | int]:
         """
         Serialize as a savable set of key-value pairs
         """
@@ -57,7 +57,7 @@ async def get_all_coaches() -> AsyncIterable[CoachRow]:
             )
 
 
-async def get_coaches(year: int) -> AsyncIterable[Tuple[str, NflTeam]]:
+async def get_coaches(year: int) -> AsyncIterable[tuple[str, NflTeam]]:
     """
     Get all the coaches in the NFL for a given year
 

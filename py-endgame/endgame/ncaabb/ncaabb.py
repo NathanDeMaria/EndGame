@@ -1,7 +1,8 @@
-from datetime import date, datetime, timedelta, timezone
+from collections.abc import AsyncIterator, Iterable
+from datetime import UTC, date, datetime, timedelta
 from enum import Enum
 from logging import getLogger
-from typing import AsyncIterator, Iterable, List, NamedTuple, Tuple
+from typing import NamedTuple
 
 import aiohttp
 
@@ -79,7 +80,7 @@ async def update(gender: NcaabbGender, location=None):
     save_seasons([s._replace(weeks=s.calendar_weeks) for s in seasons], location)
 
 
-async def get_seasons(gender: NcaabbGender) -> List[Season]:
+async def get_seasons(gender: NcaabbGender) -> list[Season]:
     """
     Get all seasons for a NCAABB
     """
@@ -159,7 +160,7 @@ async def get_ncaabb_season(
         return season.with_season_start(REGULAR_SEASON_START)
 
     horizon = _horizon(include_unplayed)
-    day_params: List[DayParams] = []
+    day_params: list[DayParams] = []
     start = _last_day_so_far(season_so_far) or date(year, *REGULAR_SEASON_START)
     end = date(year + 1, *REGULAR_SEASON_END)
     # Don't ask for days past the horizon
@@ -174,7 +175,7 @@ async def get_ncaabb_season(
         for day in date_range(start, end):
             day_params.append(DayParams(day, gender, group))
     # TODO: consider having season_so_far.trouble_params re-checked
-    games: List[Game] = []
+    games: list[Game] = []
     trouble_days = []
     for day_param in day_params:
         try:
@@ -192,15 +193,13 @@ async def get_ncaabb_season(
     if season_so_far:
         season = merge_seasons([season_so_far, season])
 
-    if datetime.now(timezone.utc) > datetime(
-        year + 1, *SEASON_END, tzinfo=timezone.utc
-    ):
+    if datetime.now(UTC) > datetime(year + 1, *SEASON_END, tzinfo=UTC):
         cache.save_to_cache(season)
 
     return season
 
 
-def _build_season(games: Iterable[Game], year: int, trouble_params: List) -> Season:
+def _build_season(games: Iterable[Game], year: int, trouble_params: list) -> Season:
     """
     Put a season's games together the way they were fetched.
 
@@ -216,7 +215,7 @@ def _build_season(games: Iterable[Game], year: int, trouble_params: List) -> Sea
     )
 
 
-def merge_seasons(seasons: List[Season]) -> Season:
+def merge_seasons(seasons: list[Season]) -> Season:
     assert all(s.year == seasons[0].year for s in seasons)
 
     games: dict[str, Game] = {}
@@ -243,7 +242,7 @@ async def get_ncaabb_games(
     group: NcaabbGroup,
     *,
     include_unplayed: bool = False,
-) -> List[Game]:
+) -> list[Game]:
     logger.info("Getting NCAABB %s %s %s", gender.value, game_date, group.name)
     parameters: RequestParameters = dict(
         lang="en",
@@ -322,7 +321,7 @@ async def _get_ncaabb_odds(
         yield odd
 
 
-def _odds_params(start: date, end: date) -> List[_OddsParams]:
+def _odds_params(start: date, end: date) -> list[_OddsParams]:
     """
     The requests that cover `start`..`end`, one per gender and competition.
 
@@ -356,7 +355,7 @@ async def get_ncaabb_spreads(start: date, end: date) -> AsyncIterator[Odds]:
     something; see the note above `_OddsParams`.
     """
     params = _odds_params(start, end)
-    problems: List[Tuple[NcaabbGender, NoPricesFound]] = []
+    problems: list[tuple[NcaabbGender, NoPricesFound]] = []
     mens_priced = False
     for param in params:
         try:

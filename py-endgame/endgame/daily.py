@@ -11,20 +11,10 @@ NCAABB works the same way but has enough of its own shape (genders,
 tournament groups, possessions, box scores) that it stays on its own code.
 """
 
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from logging import getLogger
-from typing import (
-    AsyncIterator,
-    Callable,
-    Dict,
-    FrozenSet,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Tuple,
-)
 
 import aiohttp
 
@@ -57,7 +47,7 @@ class DailyLeague:
     # the season is over by. A season is named for the calendar year it
     # starts in, the way the NFL's 2019 season ends in 2020.
     season_start: SeasonStart
-    season_end: Tuple[int, int]
+    season_end: tuple[int, int]
     # 1 when a season runs into the next calendar year (the NHL's October
     # to June), 0 when it starts and finishes in the same one (the WNBA's
     # May to October). Everything that turns a season year into real dates
@@ -83,20 +73,20 @@ class DailyLeague:
     # covered by widening it: stretching one season's end past the next
     # one's start is what puts a game in two seasons' files at once. These
     # get the real dates instead.
-    odd_seasons: Mapping[int, Tuple[date, date]] = field(default_factory=dict)
+    odd_seasons: Mapping[int, tuple[date, date]] = field(default_factory=dict)
     # The competitions that count as this league playing itself *within* a
     # regular season -- see `league_play_filter`, which is the only reader.
     # "STD" is an ordinary game, which is every regular-season game either
     # league has played back to 2002, outdoor ones included. A league with
     # a competition of its own alongside those (the WNBA's Commissioner's
     # Cup) names it here.
-    regular_season_competitions: FrozenSet[str] = frozenset({"STD"})
+    regular_season_competitions: frozenset[str] = frozenset({"STD"})
     # Event ids for exhibitions ESPN filed as ordinary games, so nothing in
     # the response marks them. Named one at a time because that's the only
     # thing that separates them -- and kept rare on purpose: every id in
     # here is a game no rule could catch, so a growing list means the rule
     # itself has stopped working.
-    untagged_exhibitions: FrozenSet[str] = frozenset()
+    untagged_exhibitions: frozenset[str] = frozenset()
     # How many days past today a fixture-carrying pull asks for -- see
     # `constants.DEFAULT_LOOKAHEAD_DAYS`. Ignored entirely by a results-only
     # pull, which never looks past today.
@@ -124,8 +114,8 @@ class DailyLeague:
         """
         Whether the `year` season is over, and so safe to cache.
         """
-        end = datetime.combine(self.end_date(year), time.min, tzinfo=timezone.utc)
-        return datetime.now(timezone.utc) > end
+        end = datetime.combine(self.end_date(year), time.min, tzinfo=UTC)
+        return datetime.now(UTC) > end
 
     def is_in_season(self, day: date) -> bool:
         """
@@ -154,7 +144,7 @@ class DailyLeague:
         return today.year if started else today.year - 1
 
 
-async def update(league: DailyLeague, location: Optional[str] = None) -> None:
+async def update(league: DailyLeague, location: str | None = None) -> None:
     """
     Update a league's .csv with every season we can get.
     """
@@ -166,7 +156,7 @@ async def update(league: DailyLeague, location: Optional[str] = None) -> None:
     save_seasons([s._replace(weeks=s.calendar_weeks) for s in seasons], location)
 
 
-async def get_seasons(league: DailyLeague) -> List[Season]:
+async def get_seasons(league: DailyLeague) -> list[Season]:
     """
     Get every season of a league.
     """
@@ -177,8 +167,8 @@ async def get_seasons(league: DailyLeague) -> List[Season]:
 async def get_season(
     league: DailyLeague,
     year: int,
-    season_so_far: Optional[Season] = None,
-    season_cache: Optional[SeasonCache] = None,
+    season_so_far: Season | None = None,
+    season_cache: SeasonCache | None = None,
     *,
     include_unplayed: bool = False,
 ) -> Season:
@@ -220,8 +210,8 @@ async def get_season(
         horizon += timedelta(days=league.lookahead_days)
     end = min(league.end_date(year), horizon)
 
-    games: List[Game] = []
-    trouble_days: List[date] = []
+    games: list[Game] = []
+    trouble_days: list[date] = []
     for day in date_range(start, end):
         try:
             games += await get_daily_games(
@@ -241,7 +231,7 @@ async def get_season(
     return season
 
 
-def merge_seasons(league: DailyLeague, seasons: List[Season]) -> Season:
+def merge_seasons(league: DailyLeague, seasons: list[Season]) -> Season:
     """
     Fold seasons of the same year together, keeping the latest copy of a
     game that shows up in more than one of them.
@@ -263,7 +253,7 @@ def merge_seasons(league: DailyLeague, seasons: List[Season]) -> Season:
 
 
 def _build_season(
-    league: DailyLeague, games: Iterable[Game], year: int, trouble_params: List
+    league: DailyLeague, games: Iterable[Game], year: int, trouble_params: list
 ) -> Season:
     """
     Put a season's games together the way they were fetched.
@@ -281,7 +271,7 @@ def _build_season(
     )
 
 
-def _last_day_so_far(season_so_far: Optional[Season]) -> Optional[date]:
+def _last_day_so_far(season_so_far: Season | None) -> date | None:
     """
     The day a resuming pull starts from: the last one we have a result for.
 
@@ -315,7 +305,7 @@ def _day_parameters(day: date) -> RequestParameters:
     )
 
 
-def _odds_parameters() -> Dict:
+def _odds_parameters() -> dict:
     """
     Everything an odds request sends except the days and the cap, which
     `get_odds_range` fills in as it splits the range up.
@@ -354,7 +344,7 @@ def league_play_filter(league: DailyLeague) -> EventFilter:
     first one isn't silent either.
     """
 
-    def _is_league_play(event: Dict) -> bool:
+    def _is_league_play(event: dict) -> bool:
         if event.get("id") in league.untagged_exhibitions:
             return False
 
@@ -386,7 +376,7 @@ def league_play_filter(league: DailyLeague) -> EventFilter:
 
 async def get_daily_games(
     league: DailyLeague, day: date, *, include_unplayed: bool = False
-) -> List[Game]:
+) -> list[Game]:
     """
     Get a single day's games, league play only.
 

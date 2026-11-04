@@ -1,6 +1,7 @@
 import json
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator, List, Tuple
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import patch
 
 from ...types import Game, Season, Week
@@ -16,7 +17,7 @@ def _game(day: int, game_id: str, *, completed: bool = True) -> Game:
         away_score=65,
         neutral_site=False,
         completed=completed,
-        date=datetime(2025, 11, day, tzinfo=timezone.utc),
+        date=datetime(2025, 11, day, tzinfo=UTC),
         game_id=game_id,
     )
 
@@ -25,7 +26,7 @@ class _CapturingApply:
     """Stands in for `apply_in_parallel` to record what got fetched."""
 
     def __init__(self) -> None:
-        self.calls: List[List[Tuple[Any, ...]]] = []
+        self.calls: list[list[tuple[Any, ...]]] = []
 
     def __call__(self, _func: Any, args: Any) -> AsyncIterator[None]:
         self.calls.append(list(args))

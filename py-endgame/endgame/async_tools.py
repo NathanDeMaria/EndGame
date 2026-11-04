@@ -1,18 +1,12 @@
 import asyncio
-from collections.abc import Coroutine
-from typing import AsyncIterator, Callable, Iterable, TypeVar
-
-from typing_extensions import TypeVarTuple
-
-_ArgTypes = TypeVarTuple("_ArgTypes")
-_ReturnType = TypeVar("_ReturnType")
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterable
 
 
-async def apply_in_parallel(
-    function: Callable[[*_ArgTypes], Coroutine[None, None, _ReturnType]],
-    args: Iterable[tuple[*_ArgTypes]],
+async def apply_in_parallel[*ArgTypes, ReturnType](
+    function: Callable[[*ArgTypes], Coroutine[None, None, ReturnType]],
+    args: Iterable[tuple[*ArgTypes]],
     max_parallel: int = 10,
-) -> AsyncIterator[_ReturnType]:
+) -> AsyncIterator[ReturnType]:
     """
     Run a list of tasks in parallel
     """
@@ -22,7 +16,7 @@ async def apply_in_parallel(
         async with semaphore:
             return await function(*arg_set)
 
-    tasks: list[asyncio.Task[_ReturnType]] = [
+    tasks: list[asyncio.Task[ReturnType]] = [
         asyncio.create_task(_limited_task(arg_set)) for arg_set in args
     ]
     results = await asyncio.gather(*tasks)

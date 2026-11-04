@@ -35,7 +35,7 @@ def test_other_hosts_are_sent_as_given() -> None:
 
 
 class _Response:
-    async def __aenter__(self) -> "_Response":
+    async def __aenter__(self) -> _Response:
         return self
 
     async def __aexit__(self, *_) -> None:
@@ -48,7 +48,7 @@ class _Response:
 class _Session:
     sent: list[dict] = []
 
-    async def __aenter__(self) -> "_Session":
+    async def __aenter__(self) -> _Session:
         return self
 
     async def __aexit__(self, *_) -> None:

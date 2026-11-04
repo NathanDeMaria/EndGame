@@ -1,6 +1,6 @@
-from datetime import date, datetime, timezone
+from collections.abc import AsyncIterator
+from datetime import UTC, date, datetime
 from logging import getLogger
-from typing import AsyncIterator, Optional
 
 from endgame.async_tools import apply_in_parallel
 from endgame.date import get_end_year
@@ -92,8 +92,8 @@ async def get_season(
     season = Season(weeks, year)
 
     # Cache if the season is over
-    season_end_date = datetime(year + 1, *SEASON_END, tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) > season_end_date:
+    season_end_date = datetime(year + 1, *SEASON_END, tzinfo=UTC)
+    if datetime.now(UTC) > season_end_date:
         cache.save_to_cache(season)
 
     return season
@@ -181,7 +181,7 @@ def _move_team_name(old_name: str) -> str:
     return team
 
 
-def _get_team(old_name: str) -> Optional[str]:
+def _get_team(old_name: str) -> str | None:
     """
     The current franchise `old_name` played for, under any spelling ESPN
     has used for it, or None if it isn't an NFL franchise at all.

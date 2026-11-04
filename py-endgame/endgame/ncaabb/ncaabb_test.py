@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import Self
 from unittest.mock import AsyncMock, patch
 
 import aiohttp
@@ -160,12 +160,12 @@ class _FakeSeasonCache(SeasonCache):
     never touch the real cache directory.
     """
 
-    def __init__(self, cached: Optional[Season] = None):
+    def __init__(self, cached: Season | None = None):
         super().__init__("fake")
         self._cached = cached
-        self.saved: List[Season] = []
+        self.saved: list[Season] = []
 
-    def check_cache(self, season: int) -> Optional[Season]:
+    def check_cache(self, season: int) -> Season | None:
         return self._cached
 
     def save_to_cache(self, season: Season) -> None:
@@ -197,7 +197,7 @@ def _expected_day_params(
     return expected
 
 
-def _called_day_params(mock_get_games: AsyncMock) -> List[DayParams]:
+def _called_day_params(mock_get_games: AsyncMock) -> list[DayParams]:
     # get_ncaabb_games is called as get_ncaabb_games(*day_param,
     # include_unplayed=...), so rebuilding from .args also checks the day
     # params themselves weren't passed by keyword.
@@ -218,7 +218,7 @@ def _unplayed_flags(mock_get_games: AsyncMock) -> set:
 
 async def _no_games(
     game_date: date, gender: NcaabbGender, group: NcaabbGroup
-) -> List[Game]:
+) -> list[Game]:
     return []
 
 
@@ -234,7 +234,7 @@ def _patch_get_games(side_effect=_no_games):
 
     async def _call(
         game_date: date, gender: NcaabbGender, group: NcaabbGroup, **_kwargs
-    ) -> List[Game]:
+    ) -> list[Game]:
         return await side_effect(game_date, gender, group)
 
     return patch.object(ncaabb_module, "get_ncaabb_games", AsyncMock(side_effect=_call))
@@ -262,7 +262,7 @@ async def test_get_ncaabb_season__fetches_whole_season_when_cache_is_empty() -> 
 
     async def fake_get_games(
         game_date: date, gender: NcaabbGender, group: NcaabbGroup
-    ) -> List[Game]:
+    ) -> list[Game]:
         if (game_date, group) == (regular.date.date(), NcaabbGroup.d1):
             return [regular]
         if (game_date, group) == (tournament.date.date(), NcaabbGroup.ncaa):
@@ -301,7 +301,7 @@ async def test_get_ncaabb_season__resumes_after_the_last_day_of_season_so_far() 
 
     async def fake_get_games(
         game_date: date, gender: NcaabbGender, group: NcaabbGroup
-    ) -> List[Game]:
+    ) -> list[Game]:
         if (game_date, group) == (fresh.date.date(), NcaabbGroup.d1):
             return [fresh]
         return []
@@ -342,7 +342,7 @@ async def test_get_ncaabb_season__resumes_after_the_last_day_of_season_so_far() 
     ],
 )
 async def test_get_ncaabb_season__empty_season_so_far_starts_from_the_top(
-    weeks: List[Week],
+    weeks: list[Week],
 ) -> None:
     """A season_so_far with no games has no last day to resume from.
 
@@ -353,7 +353,7 @@ async def test_get_ncaabb_season__empty_season_so_far_starts_from_the_top(
 
     async def fake_get_games(
         game_date: date, gender: NcaabbGender, group: NcaabbGroup
-    ) -> List[Game]:
+    ) -> list[Game]:
         if (game_date, group) == (regular.date.date(), NcaabbGroup.d1):
             return [regular]
         return []
@@ -393,7 +393,7 @@ async def test_get_ncaabb_season__marks_failed_days_as_trouble() -> None:
 
     async def fake_get_games(
         game_date: date, gender: NcaabbGender, group: NcaabbGroup
-    ) -> List[Game]:
+    ) -> list[Game]:
         if game_date == bad_day and group == NcaabbGroup.d1:
             raise _response_error(500)
         if (game_date, group) == (good.date.date(), NcaabbGroup.d1):
@@ -440,8 +440,9 @@ async def test_get_ncaabb_season__doesnt_cache_an_unfinished_season() -> None:
 def _frozen_today(today: date):
     class _FrozenDate(date):
         @classmethod
-        def today(cls) -> date:
-            return today
+        def today(cls) -> Self:
+            # the frozen day is a plain date, so it can't be typed as `cls`
+            return today  # ty: ignore[invalid-return-type]
 
     return patch.object(ncaabb_module, "date", _FrozenDate)
 
@@ -537,7 +538,7 @@ class TestCarryingFixtures:
         assert min(p.date for p in called) == played.date.date()
 
 
-def _patch_espn_games(games: List[Game]):
+def _patch_espn_games(games: list[Game]):
     async def fake_get_games(url, parameters, event_filter=None, **_kwargs):
         return list(games)
 

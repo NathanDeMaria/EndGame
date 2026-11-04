@@ -1,8 +1,7 @@
-from datetime import date, datetime, timedelta, timezone
-from typing import List, Optional, Tuple
+from datetime import UTC, date, datetime, timedelta
 
 
-def date_range(start: date, end: date) -> List[date]:
+def date_range(start: date, end: date) -> list[date]:
     """
     Every day from `start` up to (but not including) `end`.
     """
@@ -11,7 +10,7 @@ def date_range(start: date, end: date) -> List[date]:
 
 
 def is_between_dates(
-    day: date, month_day_start: Tuple[int, int], month_day_end: Tuple[int, int]
+    day: date, month_day_start: tuple[int, int], month_day_end: tuple[int, int]
 ) -> bool:
     """
     Checks if a given date is between a start and end date (inclusive).
@@ -28,7 +27,7 @@ def is_between_dates(
     return day_tuple >= month_day_start or day_tuple <= month_day_end
 
 
-def get_end_year(season_end: Tuple[int, int]) -> int:
+def get_end_year(season_end: tuple[int, int]) -> int:
     """
     Given the (month, day) end of a season,
     find the last year that it makes sense to try to get games for.
@@ -38,7 +37,7 @@ def get_end_year(season_end: Tuple[int, int]) -> int:
     EX: if the most recent NFL season is 2019-2020,
     this will return 2019.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return now.year - 1 if (now.month, now.day) < season_end else now.year
 
 
@@ -58,7 +57,7 @@ def format_dates_param(start: date, end: date) -> str:
     return f"{start:%Y%m%d}-{end:%Y%m%d}"
 
 
-def chunk_date_range(start: date, end: date, max_days: int) -> List[Tuple[date, date]]:
+def chunk_date_range(start: date, end: date, max_days: int) -> list[tuple[date, date]]:
     """
     Split `start`..`end` (inclusive) into consecutive spans of at most
     `max_days` days each.
@@ -81,9 +80,9 @@ def chunk_date_range(start: date, end: date, max_days: int) -> List[Tuple[date, 
 def clamp_to_window(
     start: date,
     end: date,
-    month_day_start: Tuple[int, int],
-    month_day_end: Tuple[int, int],
-) -> Optional[Tuple[date, date]]:
+    month_day_start: tuple[int, int],
+    month_day_end: tuple[int, int],
+) -> tuple[date, date] | None:
     """
     Narrow `start`..`end` to the part of it inside a (month, day) window,
     or None if none of it is.

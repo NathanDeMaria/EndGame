@@ -4,7 +4,6 @@ import re
 import time
 from logging import getLogger
 from pathlib import Path
-from typing import Dict, Optional, Union
 from urllib.parse import urlsplit
 
 import aiofiles
@@ -15,7 +14,7 @@ from .config import CONFIG
 logger = getLogger(__name__)
 
 
-RequestParameters = Optional[Dict[str, Union[str, int]]]
+RequestParameters = dict[str, str | int] | None
 
 
 class CacheableContent:
@@ -107,12 +106,10 @@ async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
 
 
 def _get_error_message(
-    error: Union[
-        aiohttp.ClientResponseError,
-        aiohttp.ClientConnectorError,
-        aiohttp.ClientPayloadError,
-        aiohttp.ServerDisconnectedError,
-    ],
+    error: aiohttp.ClientResponseError
+    | aiohttp.ClientConnectorError
+    | aiohttp.ClientPayloadError
+    | aiohttp.ServerDisconnectedError,
 ) -> str:
     if isinstance(error, aiohttp.ClientResponseError):
         return f"Status code: {error.status}"

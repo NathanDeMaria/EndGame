@@ -1,6 +1,5 @@
 import json
-from datetime import date, datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -24,7 +23,7 @@ def _event(
     day: str,
     priced: bool = True,
     state: str = "pre",
-    season_type: Optional[int] = None,
+    season_type: int | None = None,
 ) -> dict:
     """
     One scoreboard event. `state` is ESPN's `status.type.state`: `pre`
@@ -55,11 +54,11 @@ class _FakeEspn:
     """
 
     def __init__(
-        self, responses: Dict[str, List[dict]], default: Optional[List[dict]] = None
+        self, responses: dict[str, list[dict]], default: list[dict] | None = None
     ):
         self.responses = responses
         self.default = default if default is not None else []
-        self.requested: List[str] = []
+        self.requested: list[str] = []
 
     async def __call__(self, url, parameters):
         dates = parameters["dates"]
@@ -198,9 +197,9 @@ class _FakeEspnByLimit:
     `limit` was asked for -- which is the whole failure this guards.
     """
 
-    def __init__(self, by_limit: Dict[tuple, List[dict]]):
+    def __init__(self, by_limit: dict[tuple, list[dict]]):
         self.by_limit = by_limit
-        self.requested: List[tuple] = []
+        self.requested: list[tuple] = []
 
     async def __call__(self, url, parameters):
         key = (parameters["dates"], int(parameters["limit"]))
@@ -490,7 +489,7 @@ async def test_unpriced_regular_season_games_still_raise() -> None:
 
 
 # The Monday the NFL's whole season went unpriced: 2026-10-05, 08:00 Chicago.
-_MONDAY = datetime(2026, 10, 5, 13, 0, tzinfo=timezone.utc)
+_MONDAY = datetime(2026, 10, 5, 13, 0, tzinfo=UTC)
 
 
 def _patch_now(now: datetime):

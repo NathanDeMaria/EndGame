@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -25,7 +25,7 @@ def _game(day: int, game_id: str = "1", month: int = 11, year: int = 2023) -> Ga
         away_score=0,
         neutral_site=False,
         completed=True,
-        date=datetime(year, month, day, tzinfo=timezone.utc),
+        date=datetime(year, month, day, tzinfo=UTC),
         game_id=game_id,
     )
 
@@ -41,8 +41,8 @@ def test_games_in_order() -> None:
 
 def test_week_start_and_end() -> None:
     week = Week([_game(9), _game(6), _game(7)], 1)
-    assert week.start == datetime(2023, 11, 6, tzinfo=timezone.utc)
-    assert week.end == datetime(2023, 11, 9, tzinfo=timezone.utc)
+    assert week.start == datetime(2023, 11, 6, tzinfo=UTC)
+    assert week.end == datetime(2023, 11, 9, tzinfo=UTC)
 
 
 def test_empty_week_has_no_start_or_end() -> None:
