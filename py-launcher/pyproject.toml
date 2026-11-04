@@ -1,13 +1,51 @@
-[tool.poetry]
+[project]
 name = "endgame-launcher"
 version = "0.1.0"
 description = "EndGame Launcher Application"
 readme = "README.md"
+requires-python = ">=3.15"
+dependencies = [
+    "aiobotocore>=3.9.0",
+    "batch-core",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-batch-core = {git = "https://github.com/NathanDemaria/aws-batch-optimization.git", rev = "587a6c3dc962c37568dc187dfa2adea13c5f8b41", subdirectory = "batch-core"}
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.17.3",
+    "ty>=0.0.94",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["endgame_launcher"]
+
+[tool.uv.sources]
+# Not published: a subdirectory of aws-batch-optimization, pinned to a commit.
+batch-core = { git = "https://github.com/NathanDeMaria/aws-batch-optimization.git", rev = "fea38539dafc510d7842ff56b6ef49c8a0eefc28", subdirectory = "batch-core" }
+
+# Below here is the template's. `copier update` brings changes to it from
+# mirrorball, so per-repo additions are better made as new keys than as edits.
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+# Ruff's defaults (E4, E7, E9, F), import sorting, and pyupgrade -- which
+# reads requires-python to decide what's outdated.
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["endgame_launcher"]
+
+[tool.ty.terminal]
+# A warning fails `make check` and CI, same as an error. Silence one on purpose
+# with `# ty: ignore[rule]`, which ty itself flags once it's no longer needed.
+error-on-warning = true
+
+[tool.pytest]
+# Unknown markers, bad config keys and xfails that pass are failures.
+strict = true
