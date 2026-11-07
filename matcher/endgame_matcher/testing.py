@@ -1,7 +1,7 @@
-from typing import Collection, Set, Tuple
+from collections.abc import Collection
 
 
-def set_mistmatch(left: Collection, right: Collection) -> Tuple[Set[str], Set[str]]:
+def set_mistmatch(left: Collection, right: Collection) -> tuple[set[str], set[str]]:
     """
     Returns a tuple of extras in left, extras in right
     """
