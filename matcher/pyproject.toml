@@ -50,6 +50,9 @@ error-on-warning = true
 [tool.pytest]
 # Unknown markers, bad config keys and xfails that pass are failures.
 strict = true
+# CI deselects this everywhere with PYTEST_ADDOPTS (see ../.github/workflows/ci.yml),
+# and strict config rejects a marker nothing registers.
+markers = ["network: talks to a live service"]
 
 [tool.ruff.lint.per-file-ignores]
 # this just re-exports a name for the public API
