@@ -1,0 +1,56 @@
+[project]
+name = "endgame-matcher"
+version = "0.1.0"
+description = "Maps 247Sports team names to ESPN's"
+readme = "README.md"
+# The oldest Python this supports, not the one it's developed on: a library
+# that asks for a newer interpreter than its consumers run can't be installed.
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.17.3",
+    "ty>=0.0.94",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["endgame_matcher"]
+
+# Git dependencies go in `[tool.uv.sources]`, pinned to a rev:
+#   [tool.uv.sources]
+#   endgame = { git = "https://github.com/NathanDeMaria/EndGame.git", rev = "<sha>", subdirectory = "py-endgame" }
+# Sources only apply to this project, never to whoever depends on it, so a
+# consumer has to pin the same git dependency again itself.
+
+# Below here is the template's. `copier update` brings changes to it from
+# mirrorball, so per-repo additions are better made as new keys than as edits.
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+# Ruff's defaults (E4, E7, E9, F), import sorting, and pyupgrade -- which
+# reads requires-python to decide what's outdated.
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["endgame_matcher"]
+
+[tool.ty.terminal]
+# A warning fails `make check` and CI, same as an error. Silence one on purpose
+# with `# ty: ignore[rule]`, which ty itself flags once it's no longer needed.
+error-on-warning = true
+
+[tool.pytest]
+# Unknown markers, bad config keys and xfails that pass are failures.
+strict = true
+
+[tool.ruff.lint.per-file-ignores]
+# this just re-exports a name for the public API
+"__init__.py" = ["F401"]

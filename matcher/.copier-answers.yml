@@ -1,0 +1,9 @@
+# Changes here will be overwritten by Copier
+_commit: v1.1.0
+_src_path: gh:NathanDeMaria/mirrorball
+aws: false
+ci_workflow: false
+description: Maps 247Sports team names to ESPN's
+kind: library
+module_name: endgame_matcher
+project_name: endgame-matcher
