@@ -65,7 +65,9 @@ resource "aws_lambda_function" "finals_watcher" {
   function_name    = local.finals_watcher_name
   description      = "Start the intraday football chains when games go final"
   role             = aws_iam_role.finals_watcher.arn
-  runtime          = "python3.13"
+  # The newest runtime Lambda offers (3.15 is not available yet). The code is
+  # stdlib-only, so this is the one line that sets its Python.
+  runtime          = "python3.14"
   handler          = "handler.handler"
   filename         = data.archive_file.finals_watcher.output_path
   source_code_hash = data.archive_file.finals_watcher.output_base64sha256
