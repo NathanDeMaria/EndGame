@@ -66,9 +66,31 @@ async def get(url: str, parameters: RequestParameters = None) -> CacheableConten
     return CacheableContent(content, str(cache_file))
 
 
+# ESPN answers 403 to a request that is fine, now and then: a scheduled odds
+# run and an NFL daily chain both died on one on 2026-11-04, and the odds run
+# again on 2026-11-10, each time with the same URL working at the next run. It
+# looks like the edge deciding it doesn't like us for a few minutes, so a retry
+# is worth having, but only a slow one: asking again within seconds is the
+# traffic it is objecting to. A real 403 (a URL we're not allowed) pays this
+# whole wait once and then raises as before.
+FORBIDDEN_RETRY_WAITS_S = (30, 90, 210, 450)
+
+
+def _forbidden_wait_s(retry: int) -> float | None:
+    """
+    Seconds to sleep before the `retry`-th (0-based) retry of a 403, with +/-10%
+    jitter, or None once the budget is spent.
+    """
+    if retry >= len(FORBIDDEN_RETRY_WAITS_S):
+        return None
+    return (0.9 + 0.2 * random.random()) * FORBIDDEN_RETRY_WAITS_S[retry]
+
+
 async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
     max_retries = 5
-    for i in range(max_retries):
+    forbidden_retries = 0
+    i = 0
+    while True:
         try:
             return await _get_web(url, parameters)
         except (
@@ -77,32 +99,42 @@ async def _get_with_retries(url: str, parameters: RequestParameters) -> bytes:
             aiohttp.ClientPayloadError,
             aiohttp.ServerDisconnectedError,
         ) as error:
-            # A 4xx is a request this code got wrong. Asking again with the
-            # same bytes spends the whole backoff to be told so five times,
-            # which is how a scoreboard range that ESPN stopped accepting
-            # read as flakiness instead of as a broken URL. 429 is the one
-            # that does mean "later": keep retrying that.
-            if (
-                isinstance(error, aiohttp.ClientResponseError)
-                and 400 <= error.status < 500
-                and error.status != 429
-            ):
-                raise error
-            if i + 1 == max_retries:
-                raise error
-            # Exponential backoff w/ +/- 10% jitter
-            sleep_duration_s = (0.95 + 0.1 * random.random()) * ((i + 1) ** 2)
+            forbidden = (
+                isinstance(error, aiohttp.ClientResponseError) and error.status == 403
+            )
+            if forbidden:
+                # Its own, much slower schedule and budget, see above.
+                sleep_duration_s = _forbidden_wait_s(forbidden_retries)
+                if sleep_duration_s is None:
+                    raise error
+                forbidden_retries += 1
+            else:
+                # A 4xx is a request this code got wrong. Asking again with
+                # the same bytes spends the whole backoff to be told so five
+                # times, which is how a scoreboard range that ESPN stopped
+                # accepting read as flakiness instead of as a broken URL. 429
+                # is the one that does mean "later": keep retrying that.
+                if (
+                    isinstance(error, aiohttp.ClientResponseError)
+                    and 400 <= error.status < 500
+                    and error.status != 429
+                ):
+                    raise error
+                if i + 1 == max_retries:
+                    raise error
+                # Exponential backoff w/ +/- 10% jitter
+                sleep_duration_s = (0.95 + 0.1 * random.random()) * ((i + 1) ** 2)
+                i += 1
             param_string = _build_param_string(parameters)
             full_url = f"{url}?{param_string}" if param_string else url
             logger.warning(
                 "Struggling to get %s. Error: %s. Attempt %d. Sleeping for %.02f",
                 full_url,
                 _get_error_message(error),
-                i + 1,
+                i + forbidden_retries,
                 sleep_duration_s,
             )
             await asyncio.sleep(sleep_duration_s)
-    raise Exception("Should never reach here, this is just for mypy")
 
 
 def _get_error_message(
