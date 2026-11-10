@@ -75,3 +75,64 @@ async def test_the_cache_file_is_named_without_the_buster(
     assert again.data == b'{"events": []}'
     (cached,) = (tmp_path / "web").iterdir()
     assert CACHE_BUSTER_PARAM + "=" not in cached.name
+
+
+def _status_error(status: int) -> web.aiohttp.ClientResponseError:
+    return web.aiohttp.ClientResponseError(None, (), status=status)  # ty: ignore[invalid-argument-type]
+
+
+def _flaky(monkeypatch: pytest.MonkeyPatch, statuses: list[int]) -> list[float]:
+    """Make `_get_web` fail with `statuses` then succeed; return the sleeps."""
+    sleeps: list[float] = []
+    remaining = list(statuses)
+
+    async def fake_get_web(url: str, parameters: web.RequestParameters) -> bytes:
+        if remaining:
+            raise _status_error(remaining.pop(0))
+        return b"ok"
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(web, "_get_web", fake_get_web)
+    monkeypatch.setattr(web.asyncio, "sleep", fake_sleep)
+    return sleeps
+
+
+async def test_a_403_is_retried_slowly_until_it_clears(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps = _flaky(monkeypatch, [403, 403])
+
+    assert await web._get_with_retries(SCOREBOARD, None) == b"ok"
+    # Half a minute, then a minute and a half: far longer than a 5xx waits.
+    assert 27 <= sleeps[0] <= 33
+    assert 81 <= sleeps[1] <= 99
+
+
+async def test_a_403_that_never_clears_raises_after_its_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps = _flaky(monkeypatch, [403] * 10)
+
+    with pytest.raises(web.aiohttp.ClientResponseError) as raised:
+        await web._get_with_retries(SCOREBOARD, None)
+
+    assert raised.value.status == 403
+    assert len(sleeps) == len(web.FORBIDDEN_RETRY_WAITS_S)
+
+
+async def test_other_4xx_still_fail_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps = _flaky(monkeypatch, [400])
+
+    with pytest.raises(web.aiohttp.ClientResponseError):
+        await web._get_with_retries(SCOREBOARD, None)
+
+    assert sleeps == []
+
+
+async def test_a_5xx_keeps_its_short_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleeps = _flaky(monkeypatch, [503, 503])
+
+    assert await web._get_with_retries(SCOREBOARD, None) == b"ok"
+    assert all(s < 10 for s in sleeps) and len(sleeps) == 2
