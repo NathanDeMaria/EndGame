@@ -229,7 +229,7 @@ wheels = [
 [[package]]
 name = "endgame"
 version = "0.1.0"
-source = { git = "https://github.com/NathanDeMaria/EndGame.git?subdirectory=py-endgame&rev=8d19c73a4cce561663c2c2be06f18f3fe7312e02#8d19c73a4cce561663c2c2be06f18f3fe7312e02" }
+source = { git = "https://github.com/NathanDeMaria/EndGame.git?subdirectory=py-endgame&rev=d320d7113257e54b39636e53b8973dd6786171c7#d320d7113257e54b39636e53b8973dd6786171c7" }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiohttp" },
@@ -264,7 +264,7 @@ dev = [
 requires-dist = [
     { name = "aiobotocore", specifier = ">=3.9.0" },
     { name = "dataclasses-json", specifier = ">=0.5.7,<1.0" },
-    { name = "endgame", git = "https://github.com/NathanDeMaria/EndGame.git?subdirectory=py-endgame&rev=8d19c73a4cce561663c2c2be06f18f3fe7312e02" },
+    { name = "endgame", git = "https://github.com/NathanDeMaria/EndGame.git?subdirectory=py-endgame&rev=d320d7113257e54b39636e53b8973dd6786171c7" },
     { name = "fire", specifier = ">=0.4.0,<1.0" },
     { name = "pyarrow", specifier = ">=25.0" },
 ]
