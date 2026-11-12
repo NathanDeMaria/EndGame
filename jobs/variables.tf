@@ -65,6 +65,16 @@ variable "schedule_expression" {
   default     = "cron(0 8 * * ? *)"
 }
 
+variable "basketball_early_schedule" {
+  description = <<-EOT
+    When the basketball pulls (the play-by-play chain and the box scores) run
+    early, ahead of their 8am runs, so cassandra's 5am player ratings have the
+    night's games. November through April, the months the chain runs.
+  EOT
+  type        = string
+  default     = "cron(30 4 * 11,12,1,2,3,4 ? *)"
+}
+
 variable "football_intraday_schedule" {
   description = <<-EOT
     When the intraday football chains ran on the clock, before the finals
