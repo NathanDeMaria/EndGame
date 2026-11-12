@@ -170,6 +170,57 @@ module "basketball" {
   ]
 }
 
+# The basketball pulls again at 4:30, ahead of the 8am ones: cassandra's
+# basketball player ratings run on their own at 5:00 off what these land, and
+# its picks job bets a team's next game only once its last game is in them.
+# By 4:30 the night's last finals, out west, are about three hours old. The
+# 8am runs stay as they were, as a retry: `plays` pulls only days not stored
+# yet, so after a good early run it pulls nothing, and `box_scores` only
+# games it doesn't have, so it picks up one the early run found unfinished.
+resource "aws_scheduler_schedule" "basketball_early" {
+  for_each   = module.basketball
+  name       = "endgame-basketball-${each.key}-early-schedule"
+  group_name = "default"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression          = var.basketball_early_schedule
+  schedule_expression_timezone = var.schedule_timezone
+
+  target {
+    arn      = each.value.state_machine_arn
+    role_arn = aws_iam_role.scheduler_role.arn
+
+    input = jsonencode({})
+  }
+}
+
+resource "aws_scheduler_schedule" "box_scores_early" {
+  for_each   = toset(["mens", "womens"])
+  name       = "daily-games-${each.key}-early-schedule"
+  group_name = "default"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  schedule_expression          = var.basketball_early_schedule
+  schedule_expression_timezone = var.schedule_timezone
+
+  target {
+    arn      = "arn:aws:scheduler:::aws-sdk:batch:submitJob"
+    role_arn = aws_iam_role.scheduler_role.arn
+
+    input = jsonencode({
+      JobName       = "daily-games-${each.key}-early-run"
+      JobQueue      = local.job_queue_arn
+      JobDefinition = module.daily_games[each.key].job_definition_arn
+    })
+  }
+}
+
 # The football chains. One per league, each three jobs deep.
 module "football" {
   source   = "./modules/chained_jobs"
